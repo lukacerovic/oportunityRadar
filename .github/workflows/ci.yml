@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: seismo
+          POSTGRES_PASSWORD: seismo
+          POSTGRES_DB: seismograph
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SEISMO_DATABASE_URL: postgresql+psycopg://seismo:seismo@localhost:5432/seismograph
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Invariant 3 — no LLM SDK outside checkpoints/
+        run: bash scripts/check_llm_import.sh
+
+      - name: Lint (ruff)
+        run: uv run ruff check
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check
+
+      - name: Types (mypy)
+        run: uv run mypy src
+
+      - name: Migrate
+        run: uv run alembic upgrade head
+
+      - name: Doctor
+        run: uv run seismo doctor
+
+      - name: Tests (fast suite — mock LLM, $0)
+        run: uv run pytest -q -m "not hindcast and not llm_local"
