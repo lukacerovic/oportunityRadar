@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from seismo.db import canonical_entity_id
@@ -18,34 +18,10 @@ from seismo.models import Entity, EntityMerge, EntityMergeQueue, RawEvent
 
 NOW = datetime(2026, 7, 1, tzinfo=UTC)
 
-# Tables to clear so each test runs against an isolated slate. resolve() is global by design and
-# the shared dev DB carries committed Stage-1 events; deletions live inside the rolled-back
-# transaction, so real data is restored when the test's transaction rolls back. Order = dependents
-# before the entities/raw_events they reference.
-_CLEAR = [
-    "entity_merge_queue",
-    "entity_merges",
-    "entity_category_history",
-    "entity_themes",
-    "entity_links",
-    "momentum_states",
-    "maturity_promotions",
-    "entity_metrics_daily",
-    "comprehension_cards",
-    "gate_decisions",
-    "brief_scores",
-    "impact_briefs",
-    "entities",
-    "raw_events",
-]
-
 
 @pytest.fixture(autouse=True)
-def _isolated(db_session: Session) -> Session:
-    for table in _CLEAR:
-        db_session.execute(text(f"DELETE FROM {table}"))
-    db_session.flush()
-    return db_session
+def _isolated(clean_db: Session) -> Session:
+    return clean_db
 
 
 def _event(

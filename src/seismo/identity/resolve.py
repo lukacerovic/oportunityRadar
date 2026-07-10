@@ -163,6 +163,10 @@ def _attach(
         )
         stats.events_attached += 1
         _absorb_payload(ent, event)
+        # A seed block emits one event per anchor but all carry the block's full anchor set;
+        # register the siblings so every anchor of the block resolves to this one entity.
+        if event.source == "seed":
+            _register_siblings(ent, anchor_map, event.payload.get("anchors") or {})
         for ref in anchor_mod.references(event.source, event.payload):
             _remember_reference(ent, ref, event.occurred_at)
 
@@ -233,6 +237,14 @@ def _owner_of(event: RawEvent) -> str | None:
         if "/" in str(nid):
             return str(nid).split("/", 1)[0].lower()
     return None
+
+
+def _register_siblings(ent: _Ent, anchor_map: dict[str, int], anchors: dict[str, str]) -> None:
+    """Attach all of a seed block's registry anchors to one entity, so a later sibling event (or a
+    discovered event on any of those anchors) resolves to this same entity."""
+    for registry, native_id in anchors.items():
+        ent.anchors.setdefault(registry, native_id)
+        anchor_map.setdefault(f"{registry}:{native_id}", ent.id)
 
 
 def _remember_reference(ent: _Ent, ref: anchor_mod.Reference, occurred_at: datetime) -> None:

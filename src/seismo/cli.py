@@ -69,6 +69,21 @@ def resolve(cold_start: bool = typer.Option(False, "--cold-start")) -> None:
         typer.echo(f"[resolve] cold_start={cold_start} — {stats.as_note()}")
 
 
+@app.command(name="seed-load")
+def seed_load() -> None:
+    """Cold-start — load the hand-curated seed universe (doc 14 §3). Idempotent."""
+    from seismo.db import session_scope
+    from seismo.identity.seed import seed_load as run_seed_load
+
+    with record_pipeline_run("seed-load"):
+        with session_scope() as session:
+            stats = run_seed_load(session)
+        typer.echo(
+            f"[seed-load] entities={stats.entities_in_file} events={stats.events_emitted} "
+            f"new={stats.events_new} (run `seismo resolve --cold-start` next)"
+        )
+
+
 @app.command()
 def snapshot() -> None:
     """Layer 4 — entity_metrics_daily (doc 06)."""

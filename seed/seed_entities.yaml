@@ -1,0 +1,779 @@
+# seed/seed_entities.yaml — hand-curated day-1 universe (doc 14 §3).
+# Coverage rule (§3.2): 3–8 best-known members per category, so every category has cohort seed
+# mass. These are registry anchors, not opinions. Anchor keys: github (owner/repo or org), pypi,
+# npm, arxiv, hf (org/model or org). Categories must match seed/categories.yaml slugs; themes must
+# match seed/themes.yaml. The loader emits one seed_anchor event per anchor; resolve collapses a
+# block's anchors into one entity and merges discovered entities into it via R1–R3.
+
+# --- inference-runtime ---
+- name: vLLM
+  entity_type: project
+  category: inference-runtime
+  anchors: {github: vllm-project/vllm, pypi: vllm, arxiv: "2309.06180"}
+  themes: [efficient inference]
+- name: Text Generation Inference
+  entity_type: project
+  category: inference-runtime
+  anchors: {github: huggingface/text-generation-inference}
+  themes: [efficient inference]
+- name: SGLang
+  entity_type: project
+  category: inference-runtime
+  anchors: {github: sgl-project/sglang}
+  themes: [efficient inference]
+- name: TensorRT-LLM
+  entity_type: project
+  category: inference-runtime
+  anchors: {github: NVIDIA/TensorRT-LLM}
+  themes: [efficient inference]
+- name: LMDeploy
+  entity_type: project
+  category: inference-runtime
+  anchors: {github: InternLM/lmdeploy}
+  themes: [efficient inference]
+- name: DeepSpeed-MII
+  entity_type: project
+  category: inference-runtime
+  anchors: {github: microsoft/DeepSpeed-MII}
+  themes: [efficient inference]
+
+# --- model-efficiency ---
+- name: bitsandbytes
+  entity_type: project
+  category: model-efficiency
+  anchors: {github: bitsandbytes-foundation/bitsandbytes, pypi: bitsandbytes}
+  themes: [efficient inference]
+- name: AutoGPTQ
+  entity_type: project
+  category: model-efficiency
+  anchors: {github: AutoGPTQ/AutoGPTQ}
+  themes: [efficient inference]
+- name: AutoAWQ
+  entity_type: project
+  category: model-efficiency
+  anchors: {github: casper-hansen/AutoAWQ}
+  themes: [efficient inference]
+- name: FlashAttention
+  entity_type: project
+  category: model-efficiency
+  anchors: {github: Dao-AILab/flash-attention, arxiv: "2205.14135"}
+  themes: [efficient inference]
+- name: llm-awq
+  entity_type: project
+  category: model-efficiency
+  anchors: {github: mit-han-lab/llm-awq, arxiv: "2306.00978"}
+  themes: [efficient inference]
+
+# --- on-device-runtime ---
+- name: llama.cpp
+  entity_type: project
+  category: on-device-runtime
+  anchors: {github: ggml-org/llama.cpp}
+  themes: [on-device & edge]
+- name: MLX
+  entity_type: project
+  category: on-device-runtime
+  anchors: {github: ml-explore/mlx}
+  themes: [on-device & edge]
+- name: llamafile
+  entity_type: project
+  category: on-device-runtime
+  anchors: {github: Mozilla-Ocho/llamafile}
+  themes: [on-device & edge]
+- name: MLC LLM
+  entity_type: project
+  category: on-device-runtime
+  anchors: {github: mlc-ai/mlc-llm}
+  themes: [on-device & edge]
+- name: GPT4All
+  entity_type: project
+  category: on-device-runtime
+  anchors: {github: nomic-ai/gpt4all}
+  themes: [on-device & edge]
+- name: Ollama
+  entity_type: project
+  category: on-device-runtime
+  anchors: {github: ollama/ollama}
+  themes: [on-device & edge]
+
+# --- model-foundation ---
+- name: Llama 3
+  entity_type: project
+  category: model-foundation
+  anchors: {github: meta-llama/llama3}
+  themes: [open weights frontier]
+- name: DeepSeek
+  entity_type: org
+  category: model-foundation
+  anchors: {github: deepseek-ai, hf_org: deepseek-ai}
+  themes: [open weights frontier]
+- name: Qwen
+  entity_type: project
+  category: model-foundation
+  anchors: {github: QwenLM/Qwen2.5}
+  themes: [open weights frontier]
+- name: Mistral
+  entity_type: project
+  category: model-foundation
+  anchors: {github: mistralai/mistral-inference, hf_org: mistralai}
+  themes: [open weights frontier]
+- name: Gemma
+  entity_type: project
+  category: model-foundation
+  anchors: {github: google/gemma_pytorch}
+  themes: [open weights frontier]
+- name: Yi
+  entity_type: project
+  category: model-foundation
+  anchors: {github: 01-ai/Yi}
+  themes: [open weights frontier]
+
+# --- multimodal-model ---
+- name: Stable Diffusion (generative-models)
+  entity_type: project
+  category: multimodal-model
+  anchors: {github: Stability-AI/generative-models}
+  themes: [multimodal & vision]
+- name: FLUX
+  entity_type: project
+  category: multimodal-model
+  anchors: {github: black-forest-labs/flux}
+  themes: [multimodal & vision]
+- name: Whisper
+  entity_type: project
+  category: multimodal-model
+  anchors: {github: openai/whisper}
+  themes: [multimodal & vision]
+- name: LLaVA
+  entity_type: project
+  category: multimodal-model
+  anchors: {github: haotian-liu/LLaVA}
+  themes: [multimodal & vision]
+- name: Segment Anything
+  entity_type: project
+  category: multimodal-model
+  anchors: {github: facebookresearch/segment-anything}
+  themes: [multimodal & vision]
+- name: Coqui TTS
+  entity_type: project
+  category: multimodal-model
+  anchors: {github: coqui-ai/TTS, pypi: TTS}
+  themes: [multimodal & vision]
+
+# --- agent-framework ---
+- name: LangChain
+  entity_type: project
+  category: agent-framework
+  anchors: {github: langchain-ai/langchain, pypi: langchain}
+  themes: [agent tooling]
+- name: AutoGen
+  entity_type: project
+  category: agent-framework
+  anchors: {github: microsoft/autogen, pypi: pyautogen}
+  themes: [agent tooling]
+- name: CrewAI
+  entity_type: project
+  category: agent-framework
+  anchors: {github: crewAIInc/crewAI, pypi: crewai}
+  themes: [agent tooling]
+- name: LangGraph
+  entity_type: project
+  category: agent-framework
+  anchors: {github: langchain-ai/langgraph, pypi: langgraph}
+  themes: [agent tooling]
+- name: MetaGPT
+  entity_type: project
+  category: agent-framework
+  anchors: {github: geekan/MetaGPT}
+  themes: [agent tooling]
+- name: AutoGPT
+  entity_type: project
+  category: agent-framework
+  anchors: {github: Significant-Gravitas/AutoGPT}
+  themes: [agent tooling]
+
+# --- agent-runtime ---
+- name: E2B
+  entity_type: project
+  category: agent-runtime
+  anchors: {github: e2b-dev/E2B, pypi: e2b}
+  themes: [agent tooling]
+- name: OpenHands
+  entity_type: project
+  category: agent-runtime
+  anchors: {github: All-Hands-AI/OpenHands}
+  themes: [agent tooling]
+- name: browser-use
+  entity_type: project
+  category: agent-runtime
+  anchors: {github: browser-use/browser-use, pypi: browser-use}
+  themes: [agent tooling]
+- name: SuperAGI
+  entity_type: project
+  category: agent-runtime
+  anchors: {github: TransformerOptimus/SuperAGI}
+  themes: [agent tooling]
+- name: AgentGPT
+  entity_type: project
+  category: agent-runtime
+  anchors: {github: reworkd/AgentGPT}
+  themes: [agent tooling]
+
+# --- code-assistant ---
+- name: Continue
+  entity_type: project
+  category: code-assistant
+  anchors: {github: continuedev/continue}
+  themes: [code generation]
+- name: Cody
+  entity_type: project
+  category: code-assistant
+  anchors: {github: sourcegraph/cody}
+  themes: [code generation]
+- name: Tabby
+  entity_type: project
+  category: code-assistant
+  anchors: {github: TabbyML/tabby}
+  themes: [code generation]
+- name: Aider
+  entity_type: project
+  category: code-assistant
+  anchors: {github: Aider-AI/aider, pypi: aider-chat}
+  themes: [code generation]
+- name: SWE-agent
+  entity_type: project
+  category: code-assistant
+  anchors: {github: SWE-agent/SWE-agent}
+  themes: [code generation]
+- name: PR-Agent
+  entity_type: project
+  category: code-assistant
+  anchors: {github: qodo-ai/pr-agent}
+  themes: [code generation]
+
+# --- vector-db ---
+- name: Qdrant
+  entity_type: project
+  category: vector-db
+  anchors: {github: qdrant/qdrant}
+  themes: [retrieval & memory]
+- name: Milvus
+  entity_type: project
+  category: vector-db
+  anchors: {github: milvus-io/milvus}
+  themes: [retrieval & memory]
+- name: Weaviate
+  entity_type: project
+  category: vector-db
+  anchors: {github: weaviate/weaviate}
+  themes: [retrieval & memory]
+- name: Chroma
+  entity_type: project
+  category: vector-db
+  anchors: {github: chroma-core/chroma, pypi: chromadb}
+  themes: [retrieval & memory]
+- name: FAISS
+  entity_type: project
+  category: vector-db
+  anchors: {github: facebookresearch/faiss}
+  themes: [retrieval & memory]
+- name: pgvector
+  entity_type: project
+  category: vector-db
+  anchors: {github: pgvector/pgvector}
+  themes: [retrieval & memory]
+
+# --- rag-framework ---
+- name: LlamaIndex
+  entity_type: project
+  category: rag-framework
+  anchors: {github: run-llama/llama_index, pypi: llama-index}
+  themes: [retrieval & memory]
+- name: RAGFlow
+  entity_type: project
+  category: rag-framework
+  anchors: {github: infiniflow/ragflow}
+  themes: [retrieval & memory]
+- name: Haystack
+  entity_type: project
+  category: rag-framework
+  anchors: {github: deepset-ai/haystack, pypi: haystack-ai}
+  themes: [retrieval & memory]
+- name: ColBERT
+  entity_type: project
+  category: rag-framework
+  anchors: {github: stanford-futuredata/ColBERT}
+  themes: [retrieval & memory]
+- name: Verba
+  entity_type: project
+  category: rag-framework
+  anchors: {github: weaviate/Verba}
+  themes: [retrieval & memory]
+
+# --- memory-framework ---
+- name: Mem0
+  entity_type: project
+  category: memory-framework
+  anchors: {github: mem0ai/mem0, pypi: mem0ai}
+  themes: [retrieval & memory]
+- name: Letta
+  entity_type: project
+  category: memory-framework
+  anchors: {github: letta-ai/letta}
+  themes: [retrieval & memory]
+- name: Zep
+  entity_type: project
+  category: memory-framework
+  anchors: {github: getzep/zep}
+  themes: [retrieval & memory]
+- name: Cognee
+  entity_type: project
+  category: memory-framework
+  anchors: {github: topoteretes/cognee}
+  themes: [retrieval & memory]
+
+# --- embedding-model ---
+- name: Sentence Transformers
+  entity_type: project
+  category: embedding-model
+  anchors: {github: UKPLab/sentence-transformers, pypi: sentence-transformers}
+  themes: [retrieval & memory]
+- name: FlagEmbedding
+  entity_type: project
+  category: embedding-model
+  anchors: {github: FlagOpen/FlagEmbedding}
+  themes: [retrieval & memory]
+- name: Nomic Contrastors
+  entity_type: project
+  category: embedding-model
+  anchors: {github: nomic-ai/contrastors}
+  themes: [retrieval & memory]
+- name: GritLM
+  entity_type: project
+  category: embedding-model
+  anchors: {github: ContextualAI/gritlm}
+  themes: [retrieval & memory]
+
+# --- eval-tooling ---
+- name: LM Evaluation Harness
+  entity_type: project
+  category: eval-tooling
+  anchors: {github: EleutherAI/lm-evaluation-harness}
+  themes: [evaluation & observability]
+- name: OpenAI Evals
+  entity_type: project
+  category: eval-tooling
+  anchors: {github: openai/evals}
+  themes: [evaluation & observability]
+- name: DeepEval
+  entity_type: project
+  category: eval-tooling
+  anchors: {github: confident-ai/deepeval, pypi: deepeval}
+  themes: [evaluation & observability]
+- name: Ragas
+  entity_type: project
+  category: eval-tooling
+  anchors: {github: explodinggradients/ragas, pypi: ragas}
+  themes: [evaluation & observability]
+- name: LightEval
+  entity_type: project
+  category: eval-tooling
+  anchors: {github: huggingface/lighteval}
+  themes: [evaluation & observability]
+- name: promptfoo
+  entity_type: project
+  category: eval-tooling
+  anchors: {github: promptfoo/promptfoo, npm: promptfoo}
+  themes: [evaluation & observability]
+
+# --- observability ---
+- name: Langfuse
+  entity_type: project
+  category: observability
+  anchors: {github: langfuse/langfuse}
+  themes: [evaluation & observability]
+- name: Phoenix
+  entity_type: project
+  category: observability
+  anchors: {github: Arize-ai/phoenix, pypi: arize-phoenix}
+  themes: [evaluation & observability]
+- name: OpenLLMetry
+  entity_type: project
+  category: observability
+  anchors: {github: traceloop/openllmetry}
+  themes: [evaluation & observability]
+- name: Opik
+  entity_type: project
+  category: observability
+  anchors: {github: comet-ml/opik}
+  themes: [evaluation & observability]
+- name: Helicone
+  entity_type: project
+  category: observability
+  anchors: {github: Helicone/helicone}
+  themes: [evaluation & observability]
+
+# --- guardrails ---
+- name: Guardrails AI
+  entity_type: project
+  category: guardrails
+  anchors: {github: guardrails-ai/guardrails, pypi: guardrails-ai}
+  themes: [AI security]
+- name: NeMo Guardrails
+  entity_type: project
+  category: guardrails
+  anchors: {github: NVIDIA/NeMo-Guardrails}
+  themes: [AI security]
+- name: LLM Guard
+  entity_type: project
+  category: guardrails
+  anchors: {github: protectai/llm-guard}
+  themes: [AI security]
+- name: LangKit
+  entity_type: project
+  category: guardrails
+  anchors: {github: whylabs/langkit}
+  themes: [AI security]
+
+# --- ai-security ---
+- name: garak
+  entity_type: project
+  category: ai-security
+  anchors: {github: NVIDIA/garak, pypi: garak}
+  themes: [AI security]
+- name: Rebuff
+  entity_type: project
+  category: ai-security
+  anchors: {github: protectai/rebuff}
+  themes: [AI security]
+- name: PyRIT
+  entity_type: project
+  category: ai-security
+  anchors: {github: Azure/PyRIT}
+  themes: [AI security]
+- name: PurpleLlama
+  entity_type: project
+  category: ai-security
+  anchors: {github: meta-llama/PurpleLlama}
+  themes: [AI security]
+
+# --- fine-tuning ---
+- name: LLaMA-Factory
+  entity_type: project
+  category: fine-tuning
+  anchors: {github: hiyouga/LLaMA-Factory}
+  themes: [training & fine-tuning]
+- name: Unsloth
+  entity_type: project
+  category: fine-tuning
+  anchors: {github: unslothai/unsloth, pypi: unsloth}
+  themes: [training & fine-tuning]
+- name: PEFT
+  entity_type: project
+  category: fine-tuning
+  anchors: {github: huggingface/peft, pypi: peft}
+  themes: [training & fine-tuning]
+- name: Axolotl
+  entity_type: project
+  category: fine-tuning
+  anchors: {github: axolotl-ai-cloud/axolotl}
+  themes: [training & fine-tuning]
+
+# --- training-framework ---
+- name: DeepSpeed
+  entity_type: project
+  category: training-framework
+  anchors: {github: microsoft/DeepSpeed, pypi: deepspeed}
+  themes: [training & fine-tuning]
+- name: Megatron-LM
+  entity_type: project
+  category: training-framework
+  anchors: {github: NVIDIA/Megatron-LM}
+  themes: [training & fine-tuning]
+- name: TRL
+  entity_type: project
+  category: training-framework
+  anchors: {github: huggingface/trl, pypi: trl}
+  themes: [training & fine-tuning]
+- name: torchtune
+  entity_type: project
+  category: training-framework
+  anchors: {github: pytorch/torchtune}
+  themes: [training & fine-tuning]
+- name: nanoGPT
+  entity_type: project
+  category: training-framework
+  anchors: {github: karpathy/nanoGPT}
+  themes: [training & fine-tuning]
+- name: OpenRLHF
+  entity_type: project
+  category: training-framework
+  anchors: {github: OpenRLHF/OpenRLHF}
+  themes: [training & fine-tuning]
+
+# --- data-pipeline ---
+- name: Unstructured
+  entity_type: project
+  category: data-pipeline
+  anchors: {github: Unstructured-IO/unstructured, pypi: unstructured}
+  themes: [data engineering]
+- name: Docling
+  entity_type: project
+  category: data-pipeline
+  anchors: {github: DS4SD/docling, pypi: docling}
+  themes: [data engineering]
+- name: MarkItDown
+  entity_type: project
+  category: data-pipeline
+  anchors: {github: microsoft/markitdown}
+  themes: [data engineering]
+- name: Marker
+  entity_type: project
+  category: data-pipeline
+  anchors: {github: VikParuchuri/marker}
+  themes: [data engineering]
+
+# --- synthetic-data ---
+- name: distilabel
+  entity_type: project
+  category: synthetic-data
+  anchors: {github: argilla-io/distilabel, pypi: distilabel}
+  themes: [data engineering]
+- name: datatrove
+  entity_type: project
+  category: synthetic-data
+  anchors: {github: huggingface/datatrove}
+  themes: [data engineering]
+- name: NeMo Curator
+  entity_type: project
+  category: synthetic-data
+  anchors: {github: NVIDIA/NeMo-Curator}
+  themes: [data engineering]
+- name: Curator
+  entity_type: project
+  category: synthetic-data
+  anchors: {github: bespokelabsai/curator}
+  themes: [data engineering]
+
+# --- structured-output ---
+- name: Outlines
+  entity_type: project
+  category: structured-output
+  anchors: {github: dottxt-ai/outlines, pypi: outlines}
+  themes: [knowledge & structured output]
+- name: Guidance
+  entity_type: project
+  category: structured-output
+  anchors: {github: guidance-ai/guidance, pypi: guidance}
+  themes: [knowledge & structured output]
+- name: Instructor
+  entity_type: project
+  category: structured-output
+  anchors: {github: instructor-ai/instructor, pypi: instructor}
+  themes: [knowledge & structured output]
+- name: LM Format Enforcer
+  entity_type: project
+  category: structured-output
+  anchors: {github: noamgat/lm-format-enforcer}
+  themes: [knowledge & structured output]
+- name: BAML
+  entity_type: project
+  category: structured-output
+  anchors: {github: boundaryml/baml}
+  themes: [knowledge & structured output]
+
+# --- knowledge-graph ---
+- name: GraphRAG
+  entity_type: project
+  category: knowledge-graph
+  anchors: {github: microsoft/graphrag, pypi: graphrag}
+  themes: [knowledge & structured output]
+- name: LightRAG
+  entity_type: project
+  category: knowledge-graph
+  anchors: {github: HKUDS/LightRAG}
+  themes: [knowledge & structured output]
+- name: LLM Graph Builder
+  entity_type: project
+  category: knowledge-graph
+  anchors: {github: neo4j-labs/llm-graph-builder}
+  themes: [knowledge & structured output]
+
+# --- prompt-tooling ---
+- name: DSPy
+  entity_type: project
+  category: prompt-tooling
+  anchors: {github: stanfordnlp/dspy, pypi: dspy-ai}
+  themes: [developer platforms]
+- name: PromptFlow
+  entity_type: project
+  category: prompt-tooling
+  anchors: {github: microsoft/promptflow, pypi: promptflow}
+  themes: [developer platforms]
+- name: TextGrad
+  entity_type: project
+  category: prompt-tooling
+  anchors: {github: zou-group/textgrad}
+  themes: [developer platforms]
+- name: PromptTools
+  entity_type: project
+  category: prompt-tooling
+  anchors: {github: hegelai/prompttools}
+  themes: [developer platforms]
+
+# --- llm-gateway ---
+- name: LiteLLM
+  entity_type: project
+  category: llm-gateway
+  anchors: {github: BerriAI/litellm, pypi: litellm}
+  themes: [developer platforms]
+- name: Portkey Gateway
+  entity_type: project
+  category: llm-gateway
+  anchors: {github: Portkey-AI/gateway}
+  themes: [developer platforms]
+- name: FastChat
+  entity_type: project
+  category: llm-gateway
+  anchors: {github: lm-sys/FastChat}
+  themes: [developer platforms]
+- name: One API
+  entity_type: project
+  category: llm-gateway
+  anchors: {github: songquanpeng/one-api}
+  themes: [developer platforms]
+
+# --- sdk-client ---
+- name: OpenAI Python
+  entity_type: project
+  category: sdk-client
+  anchors: {github: openai/openai-python, pypi: openai}
+  themes: [developer platforms]
+- name: Anthropic Python SDK
+  entity_type: project
+  category: sdk-client
+  anchors: {github: anthropics/anthropic-sdk-python, pypi: anthropic}
+  themes: [developer platforms]
+- name: OpenAI Node
+  entity_type: project
+  category: sdk-client
+  anchors: {github: openai/openai-node, npm: openai}
+  themes: [developer platforms]
+- name: Google GenAI Python
+  entity_type: project
+  category: sdk-client
+  anchors: {github: googleapis/python-genai, pypi: google-genai}
+  themes: [developer platforms]
+
+# --- app-builder ---
+- name: Dify
+  entity_type: project
+  category: app-builder
+  anchors: {github: langgenius/dify}
+  themes: [developer platforms]
+- name: Open WebUI
+  entity_type: project
+  category: app-builder
+  anchors: {github: open-webui/open-webui, pypi: open-webui}
+  themes: [developer platforms]
+- name: Lobe Chat
+  entity_type: project
+  category: app-builder
+  anchors: {github: lobehub/lobe-chat}
+  themes: [developer platforms]
+- name: Flowise
+  entity_type: project
+  category: app-builder
+  anchors: {github: FlowiseAI/Flowise}
+  themes: [developer platforms]
+- name: Streamlit
+  entity_type: project
+  category: app-builder
+  anchors: {github: streamlit/streamlit, pypi: streamlit}
+  themes: [developer platforms]
+- name: Chainlit
+  entity_type: project
+  category: app-builder
+  anchors: {github: Chainlit/chainlit, pypi: chainlit}
+  themes: [developer platforms]
+
+# --- ml-compiler ---
+- name: Triton
+  entity_type: project
+  category: ml-compiler
+  anchors: {github: triton-lang/triton}
+  themes: [hardware & systems]
+- name: Apache TVM
+  entity_type: project
+  category: ml-compiler
+  anchors: {github: apache/tvm}
+  themes: [hardware & systems]
+- name: IREE
+  entity_type: project
+  category: ml-compiler
+  anchors: {github: iree-org/iree}
+  themes: [hardware & systems]
+- name: CUTLASS
+  entity_type: project
+  category: ml-compiler
+  anchors: {github: NVIDIA/cutlass}
+  themes: [hardware & systems]
+- name: XLA
+  entity_type: project
+  category: ml-compiler
+  anchors: {github: openxla/xla}
+  themes: [hardware & systems]
+
+# --- distributed-systems ---
+- name: Ray
+  entity_type: project
+  category: distributed-systems
+  anchors: {github: ray-project/ray, pypi: ray}
+  themes: [hardware & systems]
+- name: Dask
+  entity_type: project
+  category: distributed-systems
+  anchors: {github: dask/dask, pypi: dask}
+  themes: [hardware & systems]
+- name: Horovod
+  entity_type: project
+  category: distributed-systems
+  anchors: {github: horovod/horovod}
+  themes: [hardware & systems]
+- name: Kubeflow
+  entity_type: project
+  category: distributed-systems
+  anchors: {github: kubeflow/kubeflow}
+  themes: [hardware & systems]
+- name: SkyPilot
+  entity_type: project
+  category: distributed-systems
+  anchors: {github: skypilot-org/skypilot}
+  themes: [hardware & systems]
+
+# --- workflow-orchestration ---
+- name: Airflow
+  entity_type: project
+  category: workflow-orchestration
+  anchors: {github: apache/airflow, pypi: apache-airflow}
+  themes: [hardware & systems]
+- name: Prefect
+  entity_type: project
+  category: workflow-orchestration
+  anchors: {github: PrefectHQ/prefect, pypi: prefect}
+  themes: [hardware & systems]
+- name: Dagster
+  entity_type: project
+  category: workflow-orchestration
+  anchors: {github: dagster-io/dagster, pypi: dagster}
+  themes: [hardware & systems]
+- name: Temporal
+  entity_type: project
+  category: workflow-orchestration
+  anchors: {github: temporalio/temporal}
+  themes: [hardware & systems]
+- name: Kestra
+  entity_type: project
+  category: workflow-orchestration
+  anchors: {github: kestra-io/kestra}
+  themes: [hardware & systems]
