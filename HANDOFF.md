@@ -80,6 +80,7 @@ src/seismo/
     http.py          make_client() with UA+contact
     runner.py        run_collector(), persist_drafts() (ON CONFLICT … RETURNING)
     registry.py      FACTORIES + GROUPS (fast=github,hn,arxiv), resolve_sources()
+    targets.py       select_targets() — active/unmerged anchored entities → TrackTarget (Stage 1.5)
     github.py hn.py arxiv.py     Wave-1 collectors
     backfill_gharchive.py        filter_events() (pure, tested) + backfill()
   checkpoints/       contracts.py stub — ONLY place allowed to import anthropic/ollama
@@ -103,7 +104,7 @@ seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 ## 7. Environment (this machine)
 
 - **Postgres 17.9** on `localhost:5432`. OS superuser `lukacerovic` (local trust auth). App role **`seismo`**/pw `seismo`, db **`seismograph`**, `pg_trgm` installed.
-- **`.env`** (git-ignored): `SEISMO_DATABASE_URL=postgresql+psycopg://seismo:seismo@localhost:5432/seismograph`, `SEISMO_LLM_PROVIDER=mock`.
+- **`.env`** (git-ignored): `SEISMO_DATABASE_URL=…`, `SEISMO_LLM_PROVIDER=mock`, **`SEISMO_GITHUB_TOKEN` is set** (classic PAT, public scope — lifts Search API rate limit + enables `track`).
 - **Python 3.12** via uv 0.8.x. **Network works from Bash** (used it to test collectors live).
 - **Git repo, committing to `main`, no remote.** Solo linear build. Scratchpad for temp files: `/private/tmp/claude-501/-Users-lukacerovic-Desktop-OportunityRadar/<session>/scratchpad`.
 - Convention: end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
@@ -114,10 +115,12 @@ seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 uv sync
 uv run alembic upgrade head
 uv run seismo doctor                 # all green expected
-uv run pytest -q                     # 12 passing, mock LLM, $0
+uv run pytest -q                     # 60 passing, mock LLM, $0
 uv run ruff check && uv run ruff format --check && uv run mypy src
 bash scripts/check_llm_import.sh
-uv run seismo collect --source fast --window 1d   # live; github needs a token
+uv run seismo collect --source fast --window 1d   # live discovery (github token set)
+uv run seismo track  --source github              # daily repo_snapshot (heartbeat)
+uv run seismo snapshot && uv run seismo score     # trajectory: metrics → momentum states
 ```
 
 ## 9. Config keys (doc 13 Part C) — `SEISMO_` prefix
@@ -197,18 +200,22 @@ Then `canonical_entity_id(entity_id, as_of)` (recursive CTE over `entity_merges`
 - **`_merge_pair` canonicalizes BOTH endpoints then flushes** before writing — transitive refs (hf→paper→repo) must collapse to one terminal survivor, or you hit `entity_merges_pkey` (loser can only be a loser once). Direction: registry-anchored (non-paper) beats paper, then earliest `created_at`.
 - **Unowned events reprocess every run** (HN stories with no registry link never get an attachment link) — harmless/idempotent at v1 scale; revisit with a high-water mark if it ever bites.
 - **Category matcher allows a trailing `s`** (`\b{kw}s?\b`) so keywords match plurals; word boundaries still keep `rag` out of `storage`.
+- **`track()` isolates per-target 404/451** — a deleted/renamed/private repo is expected attrition; without the skip, one dead repo among 1,000+ aborts the whole snapshot batch (found live: `raise_for_status` on the first 404 → 0 snapshots). Systemic errors (403 rate-limit, 5xx) still raise and fail the run.
+- **Two sources feed `gh_stars`** — live `repo_snapshot` (absolute level) and backfilled `repo_star` (cumulative count within the GH Archive window). Velocity (7-day *change*) is correct from either; the seam where they meet (live snapshots right after a historical backfill) shows an absolute-vs-window jump — harmless because a hindcast at a past `as_of` sees only backfill. Snapshot upsert dedups `(entity,metric,day)`.
+- **`gh_stars` needs a time series** — a single `track` run is one data point; velocity needs ~2 snapshots ≥7 days apart. The dev DB is all-`dormant` until either the heartbeat accumulates days or `backfill-stars` reconstructs history.
 
-## 15. NEXT — the 180-day sweep (unblocks live momentum), then Stage 4 Comprehension
+## 15. NEXT — run the sweep + DeepSeek H1, then Stage 4 Comprehension
 
-**Done this session (✅):** **Stage 3 Trajectory engine** — `snapshot` (all metric kinds, gap semantics) + `score` (ladder → velocity → cohort percentiles → hysteresis states + provisional warm-up), 14 new tests (54 total), as-of purity + synthetic riser→breakout proven. This also delivers Stage 1.5 item 2 (cohort warm-up).
+**Done this session (✅):** **Stage 3 Trajectory engine** (`snapshot`+`score`, ladder→velocity→cohort percentiles→hysteresis+warm-up) · **live `seismo track`** (repo_snapshot for known repos; the daily heartbeat) · **`seismo sweep`** (cold-start historical discovery loop) · **`seismo backfill-stars`** (GH Archive `repo_star`→cumulative `gh_stars`) · 404-isolation fix in `track()`. **`SEISMO_GITHUB_TOKEN` is now in `.env`.** 60 tests; H1 *shape* proven synthetically (repo_star→cumulative gh_stars→velocity→breakout).
 
-**Stage 3 DoD (doc 06 §6) status:** snapshot + metric semantics ✅ · cohort percentile + min-size fallback + synthetic unit tests ✅ · ladder rules + promotions w/ evidence ✅ · state machine + hysteresis + queryable history ✅ · as-of purity test green ✅ · **H1 (DeepSeek → accelerating/breakout on backfill) ⬜ — blocked on the sweep (below).** Engine is proven on synthetic cohorts; it cannot fire on the dev DB until real participation/usage `*_snapshot` events exist.
+**Stage 3 DoD (doc 06 §6) status:** snapshot+semantics ✅ · cohort percentile+fallback+tests ✅ · ladder+promotions ✅ · hysteresis+history ✅ · as-of purity ✅ · **H1 (DeepSeek→accelerating/breakout on real backfill) ⬜ — logic proven, needs the real GH Archive download.**
 
-**THE blocker for both Stage 1.5 exit and Stage 3 H1 — the 180-day sweep:**
-1. **180-day historical sweep (`COLDSTART_SWEEP_DAYS=180`)** — needs **`SEISMO_GITHUB_TOKEN`** in `.env` + ~hours of network. Run Wave-1 collectors in backfill mode + GH Archive loader over 180d, scoped by the live theme keyword lists (doc 14 §4). Expect low tens of thousands of `origin='backfill'` events + daily `repo_snapshot`s → real cohort mass + the metric series `score` needs. Not yet a single command — wire `seismo sweep --days 180` (loops `collect` windows) or a script. **Run once.** After it: re-run `resolve` → `snapshot` → `score`; expect real `simmering/accelerating/breakout` states and the DeepSeek H1 to pass.
-2. **Queue-precision sample ≥80%** (Stage 2 tail) — after the sweep populates R4–R6, sample the 0.60–0.89 band; retune `_RULE_CONF`/normalization if <80%.
-3. **`seismo retier` (A-4)** — `tracking_tier` columns exist; lifecycle command unbuilt. Low priority until the tracking set is large (post-sweep).
-4. **Minimal 8-company exposure slice** — defer to just before Stage 6 (A-1); tables (`exposure_companies`, `reach_links`) already exist.
+**The commands now exist; what's left is running the heavy data jobs:**
+1. **Live momentum (going forward):** the daily heartbeat is wired — `seismo track --source github` (systemd timer `seismo-track` at 06:00 UTC). Each day adds one `repo_snapshot` per active repo; after ~8 days there's enough for real `gh_stars` velocity → non-dormant states start appearing. Nothing more to build; it just needs days to accumulate.
+2. **DeepSeek H1 (the Stage 3 DoD gap):** `seismo backfill-stars --since 2024-01-01 --until 2024-06-01 --repos deepseek-ai` → `seismo resolve` → `seismo snapshot --as-of 2024-05-31` → `seismo score --as-of 2024-05-31`; expect DeepSeek entity = `accelerating`/`breakout`. **HEAVY: this downloads the full hourly GH Archive firehose (~120 MB/hr × ~3,600 hrs) — hours of network, hundreds of GB.** Scope tight (the org + the months that matter). This is the one real "run once" job left for the DoD.
+3. **Cold-start sweep (Stage 1.5 exit):** `seismo sweep --days 180` loops discovery over past windows to build cohort mass, then `resolve --cold-start`. Feasible on the Search API (rate-limited, minutes–an hour). Run when you want the historical universe fleshed out; not blocking Stage 4.
+4. **Queue-precision sample ≥80%** (Stage 2 tail) — after the sweep populates R4–R6, sample the 0.60–0.89 band; retune `_RULE_CONF` if <80%.
+5. **`seismo retier` (A-4)** + **minimal 8-company exposure slice** (A-1, pre-Stage 6) — both low priority, tables exist.
 
 **Then Stage 4 — Comprehension (doc 05, first LLM checkpoint):** needs `SEISMO_LLM_PROVIDER=ollama` (qwen2.5:7b) or `anthropic`+key; dev/CI stays `mock` ($0). Entity → structured card + summary; keep all `anthropic`/`ollama` imports inside `checkpoints/` (invariant 3, CI-greped). Gate never briefs on a `pending` card (A-12).
 
