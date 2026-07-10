@@ -2,7 +2,7 @@
 
 *Single entry point for any new/compacted session. Read this first. `idea_documentation/technical/seismograph-13-corrections-and-decisions.md` is AUTHORITATIVE on any conflict with other docs. All design lives in `idea_documentation/`; all build state is in git.*
 
-**Last updated after Stage 1** — commits: `6946b15` (Stage 0), `24e4bef` (Stage 1), plus this handoff.
+**Last updated mid Stage 1.5/2** — commits: `6946b15` (Stage 0), `24e4bef` (Stage 1), `a51b0d1` (migration 0002 + as-of graph), `5eba2d4` (resolution engine R1–R6), `35fc4f7` (seed universe), plus this handoff.
 **To resume:** "Read HANDOFF.md and continue the Seismograph build."
 
 ---
@@ -46,8 +46,8 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 |---|---|---|
 | 0 — Foundation | ✅ | `6946b15` |
 | 1 — Observation | ✅ | `24e4bef` |
-| **1.5 — Cold-start (doc 14)** | ⬜ **NEXT** | — |
-| 2 — Identity (+ migration 0002) | ⬜ | — |
+| 2 — Identity (migration 0002, R1–R6, merges, queue, vocab) | ✅ core | `a51b0d1` `5eba2d4` `35fc4f7` |
+| **1.5 — Cold-start (seed done; sweep + warm-up left)** | 🟡 **IN PROGRESS** | `35fc4f7` |
 | 3 — Trajectory | ⬜ | — |
 | 4 — Comprehension (first LLM; needs key or ollama) | ⬜ | — |
 | 5 — Dashboard v0 | ⬜ | — |
@@ -59,6 +59,8 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 
 **Stage 0:** uv project, `src/seismo/` layout, `seismo` CLI, migration 0001 (17 core tables = doc 02 §4), SQLAlchemy models, `as_of` helper + purity test, config, bookkeeping, ruff+mypy+pytest+CI. Exit met.
 **Stage 1:** collector framework (dedupe via `RETURNING`, `collector_runs` health, failure isolation), GitHub/HN/arXiv collectors, GH Archive backfill (`origin='backfill'`), CLI `collect`, systemd timer. Idempotency live-proven (hn 193→0, arxiv 293→0). ~486 real events in dev DB.
+**Stage 2 (this session):** migration 0002 (as-of entity graph: `entity_merges`, `entity_category_history`, `entity_links.evidence_occurred_at`, `entity_themes.effective_at`, `entities.tracking_tier`). `canonical_entity_id(session,id,as_of)` + `category_asof()` recursive-CTE helpers in `db.py`. **Graph-purity test green** (future/inactive/transitive/category). Resolution engine (`identity/{normalize,anchors,vocab,resolve}.py`): attachment → R1–R3 auto-merge (reversible, both-endpoints-canonicalized) / R4–R5 queue / R6 audit link; deterministic category (30-slug YAML) + theme (15 YAML). `seismo resolve [--cold-start]`. **DeepSeek DoD proven in tests** (paper+github+hf → one entity via R1/R2). Live: 396 events → 392 entities, idempotent.
+**Stage 1.5 (this session):** `seed/seed_entities.yaml` (143 entities, every category) + `seismo seed-load` (idempotent, `origin='seed'`, load-date `occurred_at` so no hindcast pollution). `--cold-start` defers R4–R6 to `deferred_coldstart`. Live: dev DB now **535 entities**; second resolve is a clean no-op. **40 tests green.** (Do not `alembic downgrade` a DB with data — it drops `entity_category_history`; regenerate via `UPDATE entities SET category=NULL` + re-resolve.)
 
 ---
 
@@ -80,8 +82,11 @@ src/seismo/
     github.py hn.py arxiv.py     Wave-1 collectors
     backfill_gharchive.py        filter_events() (pure, tested) + backfill()
   checkpoints/       contracts.py stub — ONLY place allowed to import anthropic/ollama
-  identity/ trajectory/ significance/ memory/ api/ hindcast/   empty (their stages)
+  identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
+  trajectory/ significance/ memory/ api/ hindcast/   empty (their stages)
 alembic/versions/0001_core_schema.py    schema source of truth
+alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
+seed/categories.yaml themes.yaml seed_entities.yaml   vocab + day-1 universe
 tests/               test_asof, test_config, test_invariants, test_collectors, conftest (db_session)
 deploy/systemd/      seismo-collect-fast.{service,timer} + deploy/README.md
 scripts/check_llm_import.sh   invariant-3 grep
@@ -98,7 +103,7 @@ seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 - **Postgres 17.9** on `localhost:5432`. OS superuser `lukacerovic` (local trust auth). App role **`seismo`**/pw `seismo`, db **`seismograph`**, `pg_trgm` installed.
 - **`.env`** (git-ignored): `SEISMO_DATABASE_URL=postgresql+psycopg://seismo:seismo@localhost:5432/seismograph`, `SEISMO_LLM_PROVIDER=mock`.
 - **Python 3.12** via uv 0.8.x. **Network works from Bash** (used it to test collectors live).
-- **Git repo, committing to `master`, no remote.** Solo linear build. Scratchpad for temp files: `/private/tmp/claude-501/-Users-lukacerovic-Desktop-OportunityRadar/<session>/scratchpad`.
+- **Git repo, committing to `main`, no remote.** Solo linear build. Scratchpad for temp files: `/private/tmp/claude-501/-Users-lukacerovic-Desktop-OportunityRadar/<session>/scratchpad`.
 - Convention: end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
 ## 8. Run / verify
@@ -141,7 +146,13 @@ uv run seismo collect --source fast --window 1d   # live; github needs a token
 - **Hindcast cases:** DeepSeek (positive, pinned) + **Ollama** (mid-size positive; asserts ladder→distribution + breakout, *not* commercialization) + Reflection-70B (flop negative, must be gate-suppressed). Alternate for commercialization coverage: Continue.dev.
 - **Exposure roster (30):** `NVDA AMD TSM AVGO ASML ARM ANET · MSFT AMZN GOOGL META AAPL ORCL · CRM ADBE NOW TEAM WDAY INTU · SNOW MDB DDOG NET CFLT · PLTR SHOP U DOCN PATH CRWD`. **Cold-start minimal 8:** `NVDA MSFT GOOGL AMZN META AMD AVGO SNOW`.
 
-## 12. Migration 0002 spec (author at start of Stage 2 — A-2 + A-4)
+## 12. Migration 0002 (✅ SHIPPED `a51b0d1` — A-2 + A-4)
+
+Authored as `alembic/versions/0002_asof_entity_graph.py` exactly as specced below (plus a
+`loser_id <> survivor_id` CHECK and a partial index on active merges). `canonical_entity_id` /
+`category_asof` live in `db.py` as recursive-CTE helpers (note: `CAST(:eid AS BIGINT)` in the
+CTE anchor — an untyped param breaks the recursive UNION type match). Graph-purity test is
+`tests/test_graph_purity.py` (green).
 
 ```sql
 -- A-2: as-of correct entity graph
@@ -180,15 +191,22 @@ Then `canonical_entity_id(entity_id, as_of)` (recursive CTE over `entity_merges`
 - **HF `downloads` is a 30-day rolling level, not a counter** — never diff it (doc 03 §2.4). Watch for this in Stage 2/3.
 - **No Anthropic key needed until Stage 4** (use `mock`/`ollama`). Keep `anthropic`/`ollama` imports inside `checkpoints/`.
 - Snapshot metrics (stars etc.) are states → `event_type='*_snapshot'`, uid `native:UTC-date`; trajectory diffs them.
+- **Resolution is global + idempotent, not as-of-gated** — `seismo resolve` sweeps *all* unlinked events (the as-of discipline governs graph *reads* via `canonical_entity_id`, not this write pass). Tests that assert counts must use the `clean_db` fixture (conftest) since the dev DB carries committed events.
+- **`_merge_pair` canonicalizes BOTH endpoints then flushes** before writing — transitive refs (hf→paper→repo) must collapse to one terminal survivor, or you hit `entity_merges_pkey` (loser can only be a loser once). Direction: registry-anchored (non-paper) beats paper, then earliest `created_at`.
+- **Unowned events reprocess every run** (HN stories with no registry link never get an attachment link) — harmless/idempotent at v1 scale; revisit with a high-water mark if it ever bites.
+- **Category matcher allows a trailing `s`** (`\b{kw}s?\b`) so keywords match plurals; word boundaries still keep `rag` out of `storage`.
 
-## 15. NEXT — Stage 1.5 Cold-start (doc 14), then Stage 2 Identity
+## 15. NEXT — finish Stage 1.5, then Stage 3 Trajectory
 
-Recommended order (identity + cold-start interleave — doc 14 §2):
-1. **Migration 0002** (§12) + `canonical_entity_id(as_of)` + graph-purity test.
-2. Minimal entity resolution: event→entity attachment (doc 04 §2) + deterministic link rules R1–R6 (doc 04 §3) + reversible merges + merge queue + category/theme YAML vocab.
-3. `seed/seed_entities.yaml` (~150–300 entities, every category) + `seismo seed-load` (emits `origin='seed'` anchors; idempotent).
-4. 180-day historical discovery sweep (Wave-1 collectors in backfill mode + GH Archive loader).
-5. `resolve --cold-start` precision-first (R1–R3) queue mode; cohort warm-up hooks (land with Stage 3/6).
-6. Minimal 8-company exposure slice — defer until just before Stage 6 (A-1).
+**Done this session (✅):** migration 0002 + as-of graph helpers + graph-purity test; resolution engine R1–R6 + reversible merges + queue + category/theme vocab; DeepSeek DoD (test); seed universe (143) + `seed-load` + `--cold-start` defer.
 
-**Stage 2 DoD (doc 04 §7):** R1–R6 unit-tested; reversible merge + `canonical_entity_id`; queue populated; theme/category vocab committed; DeepSeek backfill resolves paper 2405.04434 + `deepseek-ai` GitHub + HF into one entity via R1/R2; **graph-purity test green**; sampled queue precision ≥80% at the 0.60–0.89 band.
+**Stage 2 DoD (doc 04 §7) status:** R1–R6 unit-tested ✅ · reversible merge + `canonical_entity_id` ✅ · queue populated ✅ (curation *UI* is Stage 5) · theme/category vocab committed ✅ · DeepSeek → one entity via R1/R2 ✅ · graph-purity green ✅ · **sampled queue precision ≥80% ⬜ (needs real queue volume → run the sweep first).**
+
+**Remaining for Stage 1.5 (doc 14 §7 exit criteria):**
+1. **180-day historical sweep (`COLDSTART_SWEEP_DAYS=180`)** — run Wave-1 collectors in backfill mode + GH Archive loader over 180d, scoped by the live theme keyword lists (doc 14 §4). Needs `SEISMO_GITHUB_TOKEN` + ~hours of network; expect low tens of thousands of `origin='backfill'` events. This is what makes the 36 dangling references (and cohort mass) resolve into real merges. Not yet a single command — wire `seismo sweep --days 180` (loops `collect` windows) or a script. **Run once.**
+2. **Cohort warm-up (provisional capping)** — `momentum_states.inputs.provisional`/`cohort_n`/`cohort_key`, cap at `simmering`, gate excludes provisional, per-cohort auto-thaw. This is a doc 06 `score` change → **build it as part of Stage 3**, not before.
+3. **`seismo retier` (A-4)** — `tracking_tier` columns exist; the lifecycle command (active/slow/archived) is unbuilt. Low priority until the tracking set is large (post-sweep).
+4. **Minimal 8-company exposure slice** — defer to just before Stage 6 (A-1); columns/tables (`exposure_companies`, `reach_links`) already exist.
+5. **Queue-precision sample ≥80%** — after the sweep populates R4–R6, sample the 0.60–0.89 band; retune `_RULE_CONF`/normalization if <80%.
+
+**Then Stage 3 — Trajectory (doc 06):** `seismo snapshot` (entity_metrics_daily from `*_snapshot` events, respecting the HF-downloads-is-a-level gotcha) + `seismo score` (velocity/promotions/breadth → momentum states with hysteresis, cohort percentiles, provisional warm-up from item 2). Momentum reads MUST go through `canonical_entity_id`/`category_asof` (as-of purity now enforced by the graph-purity test).
