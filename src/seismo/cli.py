@@ -85,15 +85,29 @@ def seed_load() -> None:
 
 
 @app.command()
-def snapshot() -> None:
-    """Layer 4 — entity_metrics_daily (doc 06)."""
-    _stub("snapshot", _parse_as_of(None))
+def snapshot(as_of: str = typer.Option(None, help="ISO date; default now.")) -> None:
+    """Layer 4 — rebuild entity_metrics_daily from *_snapshot events (doc 06 §1)."""
+    from seismo.db import session_scope
+    from seismo.trajectory.metrics import run_snapshot
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("snapshot", when):
+        with session_scope() as session:
+            stats = run_snapshot(session, when)
+        typer.echo(f"[snapshot] as_of={when.date()} — {stats.as_note()}")
 
 
 @app.command()
 def score(as_of: str = typer.Option(None, help="ISO date; default now.")) -> None:
-    """Layer 4 — trajectory + momentum states (doc 06)."""
-    _stub("score", _parse_as_of(as_of))
+    """Layer 4 — maturity ladder + velocity percentiles + momentum states (doc 06)."""
+    from seismo.db import session_scope
+    from seismo.trajectory.score import run_score
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("score", when):
+        with session_scope() as session:
+            stats = run_score(session, when)
+        typer.echo(f"[score] as_of={when.date()} — {stats.as_note()}")
 
 
 @app.command()
