@@ -1,0 +1,13 @@
+# Wave-1 discovery: github + hn + arxiv (doc 03 §3). Install to /etc/systemd/system/.
+[Unit]
+Description=Seismograph collect (fast group: github, hn, arxiv)
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=seismo
+EnvironmentFile=/etc/seismograph/env
+WorkingDirectory=/opt/seismograph
+ExecStart=/home/seismo/.local/bin/uv run seismo collect --source fast --window 1d
+TimeoutStartSec=1h

@@ -35,12 +35,24 @@ def _stub(stage: str, as_of: datetime) -> None:
 
 @app.command()
 def collect(
-    source: str = typer.Option("all", help="Source key, or 'all'."),
-    window: str = typer.Option("1d", help="Collection window."),
+    source: str = typer.Option(
+        "all", help="Source key ('github'|'hn'|'arxiv') or group ('fast'|'all')."
+    ),
+    window: str = typer.Option("1d", help="Discovery window in days, e.g. '1d' or '7d'."),
 ) -> None:
-    """Layer 1 — record raw events (doc 03)."""
+    """Layer 1 — discover and record raw events (doc 03). Failures are isolated per source."""
+    from seismo.collectors.base import Window
+    from seismo.collectors.registry import build, resolve_sources
+    from seismo.collectors.runner import run_collector
+
+    days = float(window.rstrip("d"))
+    win = Window.last(days)
+    sources = resolve_sources(source)
     with record_pipeline_run(f"collect:{source}"):
-        typer.echo(f"[collect] source={source} window={window} — not implemented yet")
+        for key in sources:
+            result = run_collector(build(key), win, mode="discover")
+            status = "ok" if result.ok else f"FAIL ({result.error})"
+            typer.echo(f"[collect] {key}: {result.events_new} new events — {status}")
 
 
 @app.command()
