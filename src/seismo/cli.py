@@ -57,9 +57,16 @@ def collect(
 
 @app.command()
 def resolve(cold_start: bool = typer.Option(False, "--cold-start")) -> None:
-    """Layer 2 — entity resolution + merge queue (doc 04)."""
+    """Layer 2 — entity resolution + merge queue (doc 04).
+
+    ``--cold-start`` defers R4–R6 to the deferred bucket (doc 14 §8)."""
+    from seismo.db import session_scope
+    from seismo.identity.resolve import resolve as run_resolve
+
     with record_pipeline_run("resolve"):
-        typer.echo(f"[resolve] cold_start={cold_start} — not implemented yet")
+        with session_scope() as session:
+            stats = run_resolve(session, cold_start=cold_start)
+        typer.echo(f"[resolve] cold_start={cold_start} — {stats.as_note()}")
 
 
 @app.command()

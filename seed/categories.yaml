@@ -1,0 +1,99 @@
+# seed/categories.yaml — controlled category vocabulary (doc 04 §5). ~30 values.
+# Category is the computational key for cohorts (doc 06) and reach (doc 07). Each entry has:
+#   keywords: matched (word-boundary, case-insensitive) against README/abstract/card text for
+#             deterministic assignment (identity/category.py). Order in this file is priority:
+#             the first category with a keyword hit wins, so put specific before generic.
+#   theme:    default narrative theme (must exist in seed/themes.yaml); overridable in dashboard.
+# Every category here must have >=1 keyword and a valid theme. Changing a slug is a data
+# migration, not an edit — slugs are referenced by reach_links and cohorts.
+
+- slug: inference-runtime
+  keywords: [inference server, inference engine, serving, llm serving, vllm, tgi, sglang, kv cache, paged attention, throughput]
+  theme: efficient inference
+- slug: model-efficiency
+  keywords: [quantization, quantized, gguf, awq, gptq, distillation, sparsity, pruning, flash attention, kernel, speculative decoding]
+  theme: efficient inference
+- slug: on-device-runtime
+  keywords: [on-device, edge inference, llama.cpp, mlx, ggml, mobile inference, wasm]
+  theme: on-device & edge
+- slug: model-foundation
+  keywords: [foundation model, large language model, pretrained model, base model, moe, mixture of experts, weights release, open weights]
+  theme: open weights frontier
+- slug: multimodal-model
+  keywords: [multimodal, vision language, image generation, text-to-image, diffusion, text-to-video, speech, audio model, tts]
+  theme: multimodal & vision
+- slug: agent-framework
+  keywords: [agent framework, ai agent, autonomous agent, multi-agent, orchestration, agentic, tool use, react agent]
+  theme: agent tooling
+- slug: agent-runtime
+  keywords: [agent runtime, sandbox, code interpreter, computer use, browser agent, workflow engine]
+  theme: agent tooling
+- slug: code-assistant
+  keywords: [code assistant, copilot, code completion, coding agent, swe agent, code generation, autocomplete, pair programming]
+  theme: code generation
+- slug: vector-db
+  keywords: [vector database, vector search, vector store, ann index, embeddings database, similarity search, hnsw]
+  theme: retrieval & memory
+- slug: rag-framework
+  keywords: [rag, retrieval augmented, retrieval-augmented, document qa, semantic search, reranker, context retrieval]
+  theme: retrieval & memory
+- slug: memory-framework
+  keywords: [long-term memory, agent memory, conversational memory, memory layer, knowledge store]
+  theme: retrieval & memory
+- slug: embedding-model
+  keywords: [embedding model, sentence embedding, text embedding, encoder model, retrieval model]
+  theme: retrieval & memory
+- slug: eval-tooling
+  keywords: [evaluation, eval framework, benchmark, benchmarking, llm eval, test harness, scoring]
+  theme: evaluation & observability
+- slug: observability
+  keywords: [observability, tracing, monitoring, llm ops, llmops, prompt tracking, telemetry]
+  theme: evaluation & observability
+- slug: guardrails
+  keywords: [guardrail, guardrails, safety filter, content moderation, output validation, policy engine]
+  theme: AI security
+- slug: ai-security
+  keywords: [prompt injection, jailbreak, red team, red-teaming, adversarial, model security, llm security]
+  theme: AI security
+- slug: fine-tuning
+  keywords: [fine-tuning, fine tune, lora, qlora, peft, instruction tuning, sft, alignment]
+  theme: training & fine-tuning
+- slug: training-framework
+  keywords: [training framework, pretraining, distributed training, rlhf, dpo, reinforcement learning from human]
+  theme: training & fine-tuning
+- slug: data-pipeline
+  keywords: [data pipeline, etl, data ingestion, document loader, data connector, unstructured data]
+  theme: data engineering
+- slug: synthetic-data
+  keywords: [synthetic data, data generation, data augmentation, labeling, annotation]
+  theme: data engineering
+- slug: structured-output
+  keywords: [structured output, function calling, json schema, constrained decoding, structured generation, extraction]
+  theme: knowledge & structured output
+- slug: knowledge-graph
+  keywords: [knowledge graph, graph rag, ontology, entity extraction, graph database]
+  theme: knowledge & structured output
+- slug: prompt-tooling
+  keywords: [prompt engineering, prompt template, prompt management, few-shot, prompt optimization]
+  theme: developer platforms
+- slug: llm-gateway
+  keywords: [llm gateway, model router, api gateway, proxy, model routing, load balancing llm]
+  theme: developer platforms
+- slug: sdk-client
+  keywords: [sdk, client library, api client, python client, typescript sdk, wrapper library]
+  theme: developer platforms
+- slug: app-builder
+  keywords: [app builder, low-code, no-code, chatbot builder, ui framework, chat interface]
+  theme: developer platforms
+- slug: ml-compiler
+  keywords: [compiler, mlir, triton, cuda kernel, tensor compiler, graph compiler, xla]
+  theme: hardware & systems
+- slug: distributed-systems
+  keywords: [distributed inference, model parallel, tensor parallel, cluster, gpu scheduling, ray]
+  theme: hardware & systems
+- slug: workflow-orchestration
+  keywords: [workflow, dag, pipeline orchestration, scheduler, task queue, dataflow]
+  theme: hardware & systems
+- slug: uncategorized
+  keywords: []
+  theme: uncategorized

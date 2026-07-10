@@ -1,0 +1,34 @@
+# seed/themes.yaml — curated narrative clusters (doc 04 §5). ~15 to start.
+# Themes are narrative objects (what a human tracks); categories are computational objects
+# (what cohorts/reach are keyed on). Do not collapse them. Assignment = category->theme default
+# (seed/categories.yaml `theme:`) plus manual overrides in the dashboard (Stage 5).
+- name: efficient inference
+  description: Serving, quantization, and kernels that cut the cost of running models.
+- name: open weights frontier
+  description: Openly released foundation models and the labs shipping them.
+- name: agent tooling
+  description: Frameworks, orchestrators, and runtimes for multi-step LLM agents.
+- name: retrieval & memory
+  description: Vector search, RAG, and long-term memory for grounding models.
+- name: code generation
+  description: Coding assistants, autonomous SWE agents, and code-model tooling.
+- name: AI security
+  description: Guardrails, red-teaming, prompt-injection defense, and model security.
+- name: training & fine-tuning
+  description: Pre-training, post-training, RLHF, and parameter-efficient fine-tuning.
+- name: evaluation & observability
+  description: Benchmarks, evals, tracing, and monitoring for model behavior.
+- name: data engineering
+  description: Pipelines, synthetic data, and dataset tooling that feed models.
+- name: multimodal & vision
+  description: Image, video, audio, and cross-modal models and tooling.
+- name: developer platforms
+  description: SDKs, gateways, and infra that host and route model workloads.
+- name: on-device & edge
+  description: Local, quantized, and edge deployment of models.
+- name: hardware & systems
+  description: Accelerators, compilers, and distributed-systems substrate for AI.
+- name: knowledge & structured output
+  description: Structured extraction, function calling, and knowledge graphs.
+- name: uncategorized
+  description: Entities not yet mapped to a narrative theme.
