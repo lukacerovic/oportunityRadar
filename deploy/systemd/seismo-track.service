@@ -1,0 +1,16 @@
+# Daily tracking: deep-poll known repos for repo_snapshot (stars/forks) — the metric time series
+# the trajectory layer needs (doc 03 DR-03.3). Install to /etc/systemd/system/.
+[Unit]
+Description=Seismograph track (repo_snapshot for known github entities)
+After=postgresql.service seismo-collect-fast.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=seismo
+EnvironmentFile=/etc/seismograph/env
+WorkingDirectory=/opt/seismograph
+# Runs after discovery so newly-found repos are tracked the same day. Idempotent (snapshot uid is
+# native:UTC-date), so a catch-up run writes one snapshot per repo per day, never duplicates.
+ExecStart=/home/seismo/.local/bin/uv run seismo track --source github
+TimeoutStartSec=2h

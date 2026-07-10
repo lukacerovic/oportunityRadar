@@ -56,6 +56,31 @@ def collect(
 
 
 @app.command()
+def track(
+    source: str = typer.Option("github", help="Registry to deep-poll ('github')."),
+    limit: int = typer.Option(None, help="Cap the number of targets (testing / rate budget)."),
+) -> None:
+    """Layer 1 tracking — daily ``*_snapshot`` for known entities (doc 03 DR-03.3).
+
+    Builds the metric time series the trajectory layer needs. Polls active-tier, unmerged entities
+    that carry the source's anchor; failures are isolated per source like ``collect``."""
+    from seismo.collectors.base import Window
+    from seismo.collectors.registry import build
+    from seismo.collectors.runner import run_collector
+    from seismo.collectors.targets import select_targets
+    from seismo.db import session_scope
+
+    with record_pipeline_run(f"track:{source}"):
+        with session_scope() as session:
+            targets = select_targets(session, source, limit=limit)
+        result = run_collector(build(source), Window.last(1.0), mode="track", targets=targets)
+        status = "ok" if result.ok else f"FAIL ({result.error})"
+        typer.echo(
+            f"[track] {source}: {len(targets)} targets, {result.events_new} snapshots — {status}"
+        )
+
+
+@app.command()
 def resolve(cold_start: bool = typer.Option(False, "--cold-start")) -> None:
     """Layer 2 — entity resolution + merge queue (doc 04).
 

@@ -1,0 +1,11 @@
+# Daily 06:00 UTC — 30 min after the fast collector (05:30) so the day's newly-discovered repos
+# are included. Persistent=true catches up after downtime; tracking is idempotent per UTC day.
+[Unit]
+Description=Seismograph tracking (daily repo_snapshot)
+
+[Timer]
+OnCalendar=*-*-* 06:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
