@@ -81,6 +81,81 @@ def track(
 
 
 @app.command()
+def sweep(
+    days: int = typer.Option(None, help="Historical span in days; default COLDSTART_SWEEP_DAYS."),
+    chunk: int = typer.Option(30, help="Discovery window size per step (days)."),
+    source: str = typer.Option("fast", help="Collector group ('fast'|'all') or a single source."),
+) -> None:
+    """Cold-start historical sweep (doc 14 §7): loop discovery over past windows to seed the
+    universe, then resolve --cold-start. Star *history* (GH Archive) is a separate heavy job —
+    see ``backfill-stars``. Idempotent: re-running inserts zero duplicate events."""
+    from datetime import timedelta
+
+    from seismo.collectors.base import Window
+    from seismo.collectors.registry import build, resolve_sources
+    from seismo.collectors.runner import run_collector
+    from seismo.db import session_scope
+    from seismo.identity.resolve import resolve as run_resolve
+
+    span = days if days is not None else settings.coldstart_sweep_days
+    sources = resolve_sources(source)
+    now = datetime.now(UTC)
+    total = 0
+    with record_pipeline_run(f"sweep:{source}"):
+        offset = 0
+        while offset < span:
+            until = now - timedelta(days=offset)
+            since = now - timedelta(days=min(offset + chunk, span))
+            for key in sources:
+                result = run_collector(
+                    build(key), Window(since=since, until=until), mode="discover"
+                )
+                total += result.events_new
+                status = "ok" if result.ok else f"FAIL ({result.error})"
+                typer.echo(
+                    f"[sweep] {since.date()}..{until.date()} {key}: +{result.events_new} — {status}"
+                )
+            offset += chunk
+        with session_scope() as session:
+            stats = run_resolve(session, cold_start=True)
+    typer.echo(f"[sweep] {span}d done — {total} new events; {stats.as_note()}")
+
+
+@app.command(name="backfill-stars")
+def backfill_stars(
+    since: str = typer.Option(..., help="ISO date, inclusive (e.g. 2024-01-01)."),
+    until: str = typer.Option(..., help="ISO date, exclusive."),
+    repos: str = typer.Option(
+        None, help="Comma-separated owner/repo or org names; default = all tracked github entities."
+    ),
+) -> None:
+    """GH Archive star-history backfill for hindcast momentum (doc 11). Reconstructs ``repo_star``
+    events → the cumulative ``gh_stars`` series a past-dated ``score`` needs.
+
+    HEAVY: scans the full hourly GH Archive firehose (~120 MB/hr) across the window — hours of
+    network and hundreds of GB for long spans. Scope tightly (a case's org + a few months)."""
+    from seismo.collectors.backfill_gharchive import backfill, hourly_stamps
+    from seismo.collectors.base import Window
+    from seismo.collectors.targets import select_targets
+    from seismo.db import session_scope
+
+    win = Window(since=_parse_as_of(since), until=_parse_as_of(until))
+    if repos:
+        targets = {r.strip().lower() for r in repos.split(",") if r.strip()}
+    else:
+        with session_scope() as session:
+            targets = {t.native_id for t in select_targets(session, "github")}
+    hours = len(hourly_stamps(win))
+    typer.echo(
+        f"[backfill-stars] {win.since.date()}..{win.until.date()} = {hours} hourly archives, "
+        f"{len(targets)} targets. This downloads the full firehose per hour — be patient."
+    )
+    with record_pipeline_run("backfill-stars", win.since):
+        n = backfill(win, targets)
+    typer.echo(f"[backfill-stars] persisted {n} backfill events (run resolve → snapshot → score).")
+
+
+@app.command()
 def resolve(cold_start: bool = typer.Option(False, "--cold-start")) -> None:
     """Layer 2 — entity resolution + merge queue (doc 04).
 

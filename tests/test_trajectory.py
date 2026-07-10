@@ -90,6 +90,20 @@ def _daily_repo(session: Session, entity_id: int, *, start: datetime, days: int,
         )
 
 
+def _stars(session: Session, entity_id: int, *, start: datetime, per_day: list[int]) -> None:
+    """Emit ``repo_star`` events (the GH Archive backfill shape) — ``per_day[d]`` stars on day d."""
+    for d, count in enumerate(per_day):
+        for _ in range(count):
+            _event(
+                session,
+                entity_id,
+                source="github",
+                event_type="repo_star",
+                occurred=start + timedelta(days=d),
+                payload={"repo": f"org/e{entity_id}"},
+            )
+
+
 def _states_at(session: Session, day: date) -> dict[int, str]:
     rows = session.execute(
         text("SELECT entity_id, state FROM momentum_states WHERE day = :d"), {"d": day}
@@ -244,6 +258,59 @@ def test_level_metric_is_never_forward_filled(clean_db: Session) -> None:
         {"e": eid},
     ).all()
     assert len(rows) == 1, "a level must not be carried forward across days (doc 03 §2.4)"
+
+
+def test_backfilled_repo_stars_build_cumulative_gh_stars(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    eid = _entity(session, "repo", created=t0)
+    # 3 stars day 0, 0 day 1, 5 stars day 2 -> cumulative 3, (no row day1), 8.
+    _stars(session, eid, start=t0, per_day=[3, 0, 5])
+    session.flush()
+    run_snapshot(session, t0 + timedelta(days=3))
+    series = dict(
+        session.execute(
+            text(
+                "SELECT day, value FROM entity_metrics_daily "
+                "WHERE entity_id = :e AND metric = 'gh_stars' ORDER BY day"
+            ),
+            {"e": eid},
+        ).all()
+    )
+    vals = {d.isoformat(): int(v) for d, v in series.items()}
+    assert vals["2024-01-01"] == 3
+    assert vals["2024-01-03"] == 8  # cumulative, monotonic
+    assert "2024-01-02" not in vals  # no change that day, no row
+
+
+def test_backfilled_stars_drive_breakout_the_H1_shape(clean_db: Session) -> None:
+    """The DeepSeek H1 shape on synthetic data: a repo whose backfilled star accrual accelerates
+    breaks out against a flat cohort — proving repo_star -> cumulative gh_stars -> velocity."""
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    days = 14
+    flat_schedule = [1] + [0] * 6 + [1] + [0] * 6  # identical for every peer -> tied, pctl 0
+    for i in range(8):
+        peer = _entity(session, f"flat-{i}", created=t0)
+        _stars(session, peer, start=t0, per_day=flat_schedule)
+    riser = _entity(session, "deepseek", created=t0)
+    _stars(session, riser, start=t0, per_day=[2, 3, 4, 6, 9, 13, 20, 30, 45, 60, 80, 100, 130, 160])
+    _event(
+        session,
+        riser,
+        source="hn",
+        event_type="story",
+        occurred=t0 + timedelta(days=6),
+        payload={"points": 250},
+    )  # a second evidence type -> breadth 2 clears the breakout gate
+    session.flush()
+
+    as_of = t0 + timedelta(days=days - 1)
+    run_snapshot(session, as_of)
+    run_score(session, as_of)
+    states = _states_at(session, as_of.date())
+    assert states[riser] == "breakout", f"backfilled riser should break out, got {states[riser]}"
+    assert {s for e, s in states.items() if e != riser} == {"dormant"}
 
 
 def test_rolling_and_breadth_metrics(clean_db: Session) -> None:

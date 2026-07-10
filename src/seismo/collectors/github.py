@@ -79,6 +79,11 @@ class GitHubCollector:
             resp = self._client.get(
                 REPO_URL.format(full_name=target.native_id), headers=self._headers()
             )
+            # A repo that is deleted/renamed/made-private is expected attrition — skip it so one
+            # dead target never aborts the whole batch. Systemic errors (403 rate-limit, 5xx) still
+            # raise and fail the run, so we don't silently lose every snapshot.
+            if resp.status_code in (404, 451):
+                continue
             resp.raise_for_status()
             drafts.append(self._snapshot_draft(resp.json()))
         return drafts

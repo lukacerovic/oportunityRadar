@@ -75,6 +75,15 @@ METRIC_SPECS: tuple[MetricSpec, ...] = (
         composite=True,
         forward_fill_days=3,
     ),
+    # GH Archive backfill reconstructs stars as individual ``repo_star`` (WatchEvent) events; the
+    # cumulative count per day *is* the star series for a historical window. It feeds the same
+    # ``gh_stars`` metric so velocity is computed identically whether stars came from a live
+    # ``repo_snapshot`` level or backfilled counts. (Seam caveat: an entity that has both — live
+    # snapshots after a historical backfill — sees an absolute-vs-window-relative jump at the
+    # boundary; a hindcast at a past as_of only sees backfill, so H1 is clean.)
+    MetricSpec(
+        "gh_stars", "cumulative", "participation", "github", "repo_star", "", composite=True
+    ),
     MetricSpec(
         "hf_downloads_30d", "level", "usage", "hf", "model_snapshot", "downloads", composite=True
     ),
@@ -143,13 +152,22 @@ def run_snapshot(session: Session, as_of: datetime) -> SnapshotStats:
     for spec in METRIC_SPECS:
         if spec.kind == "rolling":
             rows.extend(_rolling_rows(streams, spec, as_of))
+        elif spec.kind == "cumulative":
+            rows.extend(_cumulative_rows(streams, spec, as_of))
         else:
             rows.extend(_point_rows(streams, spec, as_of))
     rows.extend(_breadth_rows(streams, as_of))
 
-    for _eid, metric, _day, _val in rows:
+    # Dedup on the (entity, metric, day) key, last write wins — two sources can feed one metric
+    # (e.g. gh_stars from repo_snapshot *and* backfilled repo_star), and a single upsert batch may
+    # not touch the same conflict target twice.
+    deduped: dict[tuple[int, str, date], Decimal] = {}
+    for entity_id, metric, day, value in rows:
+        deduped[(entity_id, metric, day)] = value
+    final = [(e, m, d, v) for (e, m, d), v in deduped.items()]
+    for _e, metric, _d, _v in final:
         stats.per_metric[metric] = stats.per_metric.get(metric, 0) + 1
-    stats.rows_written = _upsert_metrics(session, rows)
+    stats.rows_written = _upsert_metrics(session, final)
     return stats
 
 
@@ -228,6 +246,32 @@ def _forward_fill(
                 break
             filled.setdefault(nxt, value)
     return filled
+
+
+def _cumulative_rows(
+    streams: dict[int, list[_Ev]], spec: MetricSpec, as_of: datetime
+) -> list[tuple[int, str, date, Decimal]]:
+    """Cumulative event count as a daily level (each matching event = +1). Emits a monotonic step
+    per day the count changes — the reconstructed star series from GH Archive ``repo_star`` events.
+    The window-relative offset is irrelevant to velocity (a 7-day change), which is the point."""
+    as_of_day = as_of.date()
+    out: list[tuple[int, str, date, Decimal]] = []
+    for entity_id, evs in streams.items():
+        star_days = sorted(
+            ev.day
+            for ev in evs
+            if ev.source == spec.source and ev.event_type == spec.event_type and ev.day <= as_of_day
+        )
+        if not star_days:
+            continue
+        per_day: dict[date, int] = defaultdict(int)
+        for d in star_days:
+            per_day[d] += 1
+        running = 0
+        for day in sorted(per_day):
+            running += per_day[day]
+            out.append((entity_id, spec.name, day, Decimal(running)))
+    return out
 
 
 def _rolling_rows(

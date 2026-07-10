@@ -8,7 +8,8 @@ import httpx
 
 from seismo.collectors.arxiv import ArxivCollector
 from seismo.collectors.backfill_gharchive import filter_events, hourly_stamps
-from seismo.collectors.base import RawEventDraft, Window
+from seismo.collectors.base import RawEventDraft, TrackTarget, Window
+from seismo.collectors.github import GitHubCollector
 from seismo.collectors.hn import HackerNewsCollector
 from seismo.collectors.runner import persist_drafts, run_collector
 
@@ -62,6 +63,32 @@ def test_hn_captures_by_url_and_points_and_keyword() -> None:
     captured = {d.source_event_uid for d in drafts}
     assert captured == {"1", "2", "3"}  # github url, high points, keyword — not the recipe
     assert all(d.source == "hn" and d.event_type == "story" for d in drafts)
+
+
+# --- GitHub tracking (per-target failure isolation) -------------------------
+
+
+def test_github_track_skips_deleted_repos() -> None:
+    """A 404 (deleted/renamed/private repo) must skip that target, not abort the batch."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "gone/repo" in str(request.url):
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(
+            200,
+            json={"id": 7, "full_name": "live/repo", "stargazers_count": 50, "forks_count": 5},
+        )
+
+    targets = [
+        TrackTarget(entity_id=1, source="github", native_id="gone/repo"),
+        TrackTarget(entity_id=2, source="github", native_id="live/repo"),
+    ]
+    drafts = GitHubCollector(client=_client(handler), min_interval_s=0, token="x").track(
+        targets, WINDOW
+    )
+    assert len(drafts) == 1, "the live repo still produces a snapshot despite the dead one"
+    assert drafts[0].event_type == "repo_snapshot"
+    assert drafts[0].payload["stars"] == 50
 
 
 # --- arXiv parsing ----------------------------------------------------------
