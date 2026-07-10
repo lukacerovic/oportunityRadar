@@ -64,6 +64,9 @@ class Entity(Base):
     )
     merged_into: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("entities.id"))
     attrs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    # A-4 bounded tracking (migration 0002): active | slow | archived.
+    tracking_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
+    tier_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EntityLink(Base):
@@ -75,9 +78,44 @@ class EntityLink(Base):
     linked_entity_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("entities.id"))
     rule: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(REAL, nullable=False)
+    # A-2 (migration 0002): occurred_at of the justifying event, for as-of graph rebuilds.
+    evidence_occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class EntityMerge(Base):
+    """Append-only, reversible merge record (doc 04 DR-04.2, doc 13 A-2). As-of code reads this,
+    never ``entities.merged_into`` (which is a convenience denorm). A merge is visible at ``as_of``
+    only when ``active AND justified_at <= as_of``."""
+
+    __tablename__ = "entity_merges"
+
+    loser_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), primary_key=True)
+    survivor_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), nullable=False)
+    justified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    rule: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(REAL, nullable=False)
+    decided_by: Mapped[str] = mapped_column(Text, nullable=False)  # 'auto' | 'human'
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
+
+class EntityCategoryHistory(Base):
+    """Time-versioned category (doc 13 A-2). Category drives cohorts/reach, so the value an
+    entity had *at as_of* must be recoverable, not just its category today."""
+
+    __tablename__ = "entity_category_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    evidence_event: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("raw_events.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class EntityMergeQueue(Base):
@@ -106,6 +144,8 @@ class EntityTheme(Base):
     entity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     theme_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     source: Mapped[str | None] = mapped_column(Text)
+    # A-2 (migration 0002): when the assignment became true, for as-of theme rebuilds.
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # --- Layers 3–6 outputs -----------------------------------------------------
@@ -245,6 +285,8 @@ __all__ = [
     "RawEvent",
     "Entity",
     "EntityLink",
+    "EntityMerge",
+    "EntityCategoryHistory",
     "EntityMergeQueue",
     "Theme",
     "EntityTheme",

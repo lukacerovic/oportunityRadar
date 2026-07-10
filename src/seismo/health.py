@@ -18,6 +18,8 @@ CORE_TABLES = {
     "raw_events",
     "entities",
     "entity_links",
+    "entity_merges",
+    "entity_category_history",
     "entity_merge_queue",
     "themes",
     "entity_themes",
