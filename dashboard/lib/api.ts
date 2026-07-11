@@ -1,4 +1,6 @@
 import type {
+  Brief,
+  BriefListItem,
   EntityDossier,
   GateWeekResponse,
   HealthResponse,
@@ -44,6 +46,15 @@ export function getHealth(): Promise<HealthResponse> {
 
 export function getGate(week: string): Promise<GateWeekResponse> {
   return get<GateWeekResponse>(`/gate/${encodeURIComponent(week)}`, 300);
+}
+
+export function getBriefs(status?: string): Promise<BriefListItem[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return get<BriefListItem[]>(`/briefs${q}`, 60);
+}
+
+export function getBrief(entityId: number): Promise<Brief> {
+  return get<Brief>(`/briefs/${entityId}`, 60);
 }
 
 export const API_BASE = BASE;

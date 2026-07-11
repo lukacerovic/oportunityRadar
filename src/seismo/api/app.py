@@ -519,6 +519,167 @@ def gate_week(week: str, session: Session = Depends(get_session)) -> m.GateWeekR
     )
 
 
+# --- impact briefs (doc 08 §4 — review workflow) ----------------------------
+
+
+@app.get("/briefs", response_model=list[m.BriefListItem])
+def briefs(
+    session: Session = Depends(get_session),
+    status: str | None = Query(None, description="Filter by status; default draft+published."),
+    limit: int = Query(50, le=200),
+) -> list[m.BriefListItem]:
+    """The review inbox (doc 08 §4): the latest brief version per entity, newest first. Defaults to
+    the actionable set (draft awaiting review + already published); pass ``status`` to narrow."""
+    statuses = [status] if status else ["draft", "published"]
+    rows = (
+        session.execute(
+            text(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (entity_id) id, entity_id, version, status, as_of,
+                           created_at, brief
+                    FROM impact_briefs
+                    ORDER BY entity_id, version DESC
+                )
+                SELECT l.*, e.canonical_name
+                FROM latest l JOIN entities e ON e.id = l.entity_id
+                WHERE l.status = ANY(:statuses)
+                ORDER BY l.created_at DESC
+                LIMIT :limit
+                """
+            ),
+            {"statuses": statuses, "limit": limit},
+        )
+        .mappings()
+        .all()
+    )
+    out = []
+    for r in rows:
+        body = r["brief"] or {}
+        out.append(
+            m.BriefListItem(
+                id=r["id"],
+                entity_id=r["entity_id"],
+                entity_name=r["canonical_name"],
+                version=r["version"],
+                status=r["status"],
+                as_of=r["as_of"],
+                created_at=r["created_at"],
+                mechanisms=body.get("mechanisms") or [],
+                n_exposures=len(body.get("exposures") or []),
+                summary=body.get("summary"),
+            )
+        )
+    return out
+
+
+@app.get("/briefs/{entity_id}", response_model=m.Brief)
+def brief_detail(
+    entity_id: int,
+    session: Session = Depends(get_session),
+    version: int | None = Query(None, description="A specific version; default the latest."),
+) -> m.Brief:
+    """One entity's impact brief, rendered for the review page (doc 08 §4)."""
+    rows = (
+        session.execute(
+            text(
+                "SELECT id, version, as_of, status, model, reviewed_at, brief "
+                "FROM impact_briefs WHERE entity_id = :e ORDER BY version DESC"
+            ),
+            {"e": entity_id},
+        )
+        .mappings()
+        .all()
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="no brief for this entity")
+    versions = [r["version"] for r in rows]
+    row = rows[0] if version is None else next((r for r in rows if r["version"] == version), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"brief version {version} not found")
+
+    name = session.execute(
+        text("SELECT canonical_name FROM entities WHERE id = :e"), {"e": entity_id}
+    ).scalar()
+    body = row["brief"] or {}
+    return m.Brief(
+        id=row["id"],
+        entity_id=entity_id,
+        entity_name=name or str(entity_id),
+        version=row["version"],
+        as_of=row["as_of"],
+        status=row["status"],
+        model=row["model"],
+        reviewed_at=row["reviewed_at"],
+        reject_reason=body.get("_reject_reason"),
+        entity_ref=body.get("entity_ref"),
+        mechanisms=body.get("mechanisms") or [],
+        transmission_path=[
+            m.BriefTransmissionStep(**s) for s in (body.get("transmission_path") or [])
+        ],
+        exposures=[m.BriefExposure(**e) for e in (body.get("exposures") or [])],
+        counter_mechanism=body.get("counter_mechanism"),
+        observables=[m.BriefObservable(**o) for o in (body.get("observables") or [])],
+        confidence=body.get("confidence"),
+        horizon=body.get("horizon"),
+        summary=body.get("summary"),
+        evidence_refs=body.get("evidence_refs") or [],
+        versions=versions,
+    )
+
+
+@app.post(
+    "/briefs/{brief_id}/decision",
+    response_model=m.BriefDecisionResult,
+    dependencies=[Depends(require_token)],
+)
+def brief_decision(
+    brief_id: int,
+    decision: str = Query(..., pattern="^(publish|reject)$"),
+    reason: str | None = Query(None, description="Required when rejecting (doc 08 §4)."),
+    session: Session = Depends(get_session),
+) -> m.BriefDecisionResult:
+    """Human review (DR-08.2): publish a draft, or reject it with a reason kept for the quality loop
+    (doc 05 §6). Only a ``draft`` can be decided; published briefs are immutable."""
+    row = (
+        session.execute(
+            text("SELECT status, brief FROM impact_briefs WHERE id = :id"), {"id": brief_id}
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="brief not found")
+    if row["status"] != "draft":
+        raise HTTPException(status_code=409, detail=f"brief is {row['status']}, not a draft")
+    if decision == "reject" and not reason:
+        raise HTTPException(status_code=400, detail="a reject reason is required")
+
+    if decision == "publish":
+        session.execute(
+            text("UPDATE impact_briefs SET status = 'published', reviewed_at = now() WHERE id = :id"),
+            {"id": brief_id},
+        )
+        return m.BriefDecisionResult(id=brief_id, status="published")
+
+    body = dict(row["brief"] or {})
+    body["_reject_reason"] = reason
+    session.execute(
+        text(
+            "UPDATE impact_briefs SET status = 'rejected', reviewed_at = now(), "
+            "brief = CAST(:b AS JSONB) WHERE id = :id"
+        ),
+        {"id": brief_id, "b": _dumps(body)},
+    )
+    return m.BriefDecisionResult(id=brief_id, status="rejected")
+
+
+def _dumps(value: dict[str, Any]) -> str:
+    import json
+
+    return json.dumps(value)
+
+
 # --- search (A-10) ----------------------------------------------------------
 
 

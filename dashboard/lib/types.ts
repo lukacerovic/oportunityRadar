@@ -138,3 +138,61 @@ export interface GateWeekResponse {
   map_gaps: Record<string, number>;
   available_weeks: string[];
 }
+
+export interface BriefTransmissionStep {
+  from_node: string;
+  to_node: string;
+  effect: string;
+}
+
+export interface BriefObservable {
+  statement: string;
+  source: string;
+  system_metric: string | null;
+  horizon: string;
+  direction_if_thesis_holds: string;
+}
+
+export interface BriefExposure {
+  kind: string;
+  ref: string;
+  revenue_line: string | null;
+  direction: string;
+  magnitude_class: string;
+}
+
+export interface Brief {
+  id: number;
+  entity_id: number;
+  entity_name: string;
+  version: number;
+  as_of: string;
+  status: string;
+  model: string | null;
+  reviewed_at: string | null;
+  reject_reason: string | null;
+  entity_ref: string | null;
+  mechanisms: string[];
+  transmission_path: BriefTransmissionStep[];
+  exposures: BriefExposure[];
+  counter_mechanism: string | null;
+  observables: BriefObservable[];
+  confidence: string | null;
+  horizon: string | null;
+  summary: string | null;
+  evidence_refs: number[];
+  versions: number[];
+}
+
+export interface BriefListItem {
+  id: number;
+  entity_id: number;
+  entity_name: string;
+  version: number;
+  status: string;
+  as_of: string;
+  created_at: string;
+  mechanisms: string[];
+  n_exposures: number;
+  summary: string | null;
+}

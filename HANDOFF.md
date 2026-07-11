@@ -2,12 +2,12 @@
 
 *Single entry point for any new/compacted session. Read this first. `idea_documentation/technical/seismograph-13-corrections-and-decisions.md` is AUTHORITATIVE on any conflict with other docs. All design lives in `idea_documentation/`; all build state is in git.*
 
-**Last updated: Stages 0–6 DONE + daily heartbeat live + first real daily run.** Foundation, Observation, Identity, Trajectory, Comprehension, Dashboard, **Significance (Stage 6) all shipped**. **Migrations 0001–0004** (`alembic current` = `0004`). FastAPI API (`seismo serve`) + Next.js dashboard (`dashboard/`) render live data; dashboard now has **3 pages: Radar, Gate, Queue**. **Running on real data:** `SEISMO_GITHUB_TOKEN` set; **LLM = `ollama`, daily model `qwen2.5:3b-instruct`** (8 GB M2 → 3b for daily, `qwen2.5:7b-instruct` also pulled for batch regens, `llama3.2` fallback). **Dev DB now (post first daily run): 11,480 entities · 13,880 events · 1,501 repo_snapshots · 90 cards across 42 entities · 236,548 entity_metrics_daily rows · 8 exposure_companies · 47 reach_links · 1 gate_decision · 2 pending queue pairs.** Momentum: **1 `breakout`** (a promotion-driven cold-start artifact — see §19), the rest `dormant` (real velocity needs ~a week of daily `track`).
+**Last updated: Stages 0–7 DONE + daily heartbeat live + first real brief.** Foundation, Observation, Identity, Trajectory, Comprehension, Dashboard, Significance, **and Impact (Stage 7 = the brief) all shipped**. **Migrations 0001–0004** (`alembic current` = `0004`; Stage 7 needed no migration — `impact_briefs` existed since 0001). FastAPI API (`seismo serve`) + Next.js dashboard (`dashboard/`) render live data; dashboard now has **4 pages: Radar, Gate, Briefs, Queue**. **Running on real data:** `SEISMO_GITHUB_TOKEN` set; **LLM = `ollama`, daily model `qwen2.5:3b-instruct`** (8 GB M2 → 3b for daily, `qwen2.5:7b-instruct` also pulled for batch regens, `llama3.2` fallback). **Dev DB: ~11,480 entities · 13,880 events · 1,501 repo_snapshots · 90 cards across 42 entities · 8 exposure_companies · 47 reach_links · 1 gate_decision · 1 impact_brief (entity 2857, live qwen draft — see §20).** Momentum: mostly `dormant` (real velocity needs ~a week of daily `track`); 1 promotion-driven `breakout` artifact (§19.3).
 
-**This session shipped:** §16 README enrichment (richer qwen cards); **Stage 6 = A-1 exposure map + gate engine + `/gate/[week]` dashboard page**; the **daily heartbeat** (`scripts/daily.sh` + `DAILY.md`) and its first real run. Full narrative + the **first breakout finding** + the **Stage 7 plan** are in **§19 (read it)**.
+**This session shipped:** **Stage 7 — the Impact Brief (LLM checkpoint 2, doc 08).** Contract (`ImpactBrief` + `brief_tool_schema`), deterministic input pack (`impact_pack.py`), orchestrator (`impact.py` = trigger→pack→forced tool call→schema+post-validation→versioned `draft` store), `seismo brief` CLI, API (`/briefs`, `/briefs/{id}`, `/briefs/{id}/decision`), and the `/brief` + `/brief/[id]` dashboard pages with draft→review→publish/reject. 17 new tests (`test_impact.py` 10 + `test_api.py` +1 + existing). **Verified live:** drafted a real brief for entity 2857 via ollama qwen2.5:3b (§20). Full narrative in **§20 (read it)**.
 
-**IMMEDIATE next task: Stage 7 — the Impact Brief** (LLM checkpoint 2, doc 08 §2). This is what turns "X is rising" into "here's which companies are exposed and how" — the payoff of the exposure map. User has explicitly asked for it next. Detailed plan in **§19**.
-**To resume:** "Read HANDOFF.md (esp. §19) and build Stage 7, the impact brief." **Nothing is blocking it** — the gate + exposure map + cards it consumes all exist.
+**IMMEDIATE next task: Stage 8 — Memory & scoring** (doc 09), OR fill the remaining Stage-7 tails: (a) the **H2 DeepSeek hindcast** (needs the heavy `backfill-stars` — machinery is done, only the spend/replay left) and (b) curating the exposure map from 8 → 30 companies with sourced (not placeholder) revenue figures. See §20.5.
+**To resume:** "Read HANDOFF.md (esp. §20)." Stage 7 is complete and proven; nothing blocks Stage 8.
 
 ---
 
@@ -56,8 +56,8 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | `95f1738` |
 | 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | `b005474` `6074159` |
 | 6 — Significance — A-1 map ✅ + gate engine ✅ + gate dashboard page ✅ (`/gate/[week]`) | ✅ | `0056dff`→ |
-| 7 — Impact (LLM checkpoint 2: the brief — **NEXT**, see §19) | ⬜ NEXT | — |
-| 8 — Memory & scoring | ⬜ | — |
+| 7 — Impact (LLM checkpoint 2: brief contract + pack + orchestrator + CLI + API + dashboard) | ✅ core | see §20 |
+| 8 — Memory & scoring (**NEXT**, doc 09) | ⬜ NEXT | — |
 | 9 — Hindcast completion | ⬜ | — |
 | 10 — Operations hardening | ⬜ | — |
 
@@ -91,11 +91,12 @@ src/seismo/
     github.py hn.py arxiv.py     Wave-1 collectors
     backfill_gharchive.py        filter_events() (pure, tested) + backfill()
   checkpoints/       contracts.py llm.py evidence.py comprehend.py  ← Stage 4 (llm.py = ONLY anthropic import)
+                     impact_pack.py impact.py                       ← Stage 7 (brief pack + orchestrator)
   api/               app.py models.py  ← Stage 5 FastAPI (read+curation; the only door to the graph)
 dashboard/           Next.js 14 app (App Router, Tailwind, Meridian palette) ← Stage 5 UI; node_modules git-ignored
   identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
   trajectory/        metrics.py cohorts.py velocity.py ladder.py states.py score.py  ← Stage 3
-  significance/      exposure.py (A-1 map loader) + gate.py (Stage 6 M×R×N gate)  ← Stage 6
+  significance/      exposure.py (A-1 map loader + category_reach + RELATION_MECHANISMS) + gate.py (M×R×N)  ← Stage 6/7
   memory/ hindcast/   empty (their stages)
 alembic/versions/0001_core_schema.py    schema source of truth
 alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
@@ -103,7 +104,7 @@ alembic/versions/0003_card_status.py         comprehension_cards.status + pack_v
 alembic/versions/0004_reach_link_core.py     reach_links.core flag for the gate's R=1.0 rule (A-1)
 exposure_map/*.yaml                          8-company slice (NVDA MSFT GOOGL AMZN META AMD AVGO SNOW)
 seed/categories.yaml themes.yaml seed_entities.yaml   vocab + day-1 universe
-tests/               test_asof/config/invariants/collectors/graph_purity/trajectory/comprehension/targets/api + conftest (db_session, clean_db)
+tests/               test_asof/config/invariants/collectors/graph_purity/trajectory/comprehension/targets/api/exposure/gate/impact + conftest (db_session, clean_db)
 deploy/systemd/      seismo-collect-fast.{service,timer} + seismo-track.{service,timer} + README.md
 scripts/check_llm_import.sh   invariant-3 grep
 seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
@@ -400,3 +401,39 @@ The payoff: a *passed* entity → an evidence-linked brief naming **who is expos
 6. **DoD / H2:** DeepSeek brief from ≤2024-05-31 data names cost_collapse + commoditization, NVDA/MSFT/GOOGL-class exposures, a real counter-mechanism, dated observables (needs the heavy `backfill-stars` hindcast — can defer; build the machinery first and prove on a live carded entity).
 
 **Invariants that still bind Stage 7:** LLM SDKs only in `checkpoints/` (invariant 3; ollama via httpx, `anthropic` only in `llm.py`); the gate never briefs a `pending` card (A-12); `R=0` never reaches a brief (A-6); provisional entities excluded (doc 14 §5). To actually *see* a brief today you'd need a carded, non-dormant, mapped entity — currently none qualify (13523 is card_pending + velocity 0). Either card 13523 and force a brief to prove the path, or wait for real momentum.
+
+---
+
+## 20. SESSION LOG (2026-07-11, cont.) — Stage 7 the Impact Brief, SHIPPED
+
+Built Stage 7 exactly to the §19.5 plan (which is now DONE — the plan text above is kept as the spec). The whole checkpoint-2 path is live and proven on real data.
+
+### 20.1 What shipped (files)
+1. **Contract — `checkpoints/contracts.py`.** Added `MECHANISMS` (the closed taxonomy tuple), `TransmissionStep`, `Observable`, `Exposure`, `ImpactBrief` (validators: mechanisms ∈ taxonomy, `counter_mechanism`/`observables` required via `min_length`, `summary` coerced to ≤200 words), and `brief_tool_schema()` (injects the mechanism enum onto the array items, like `card_tool_schema`).
+2. **Relation→mechanism legality — `significance/exposure.py`.** `RELATION_MECHANISMS` maps each map `relation` to the mechanisms it may legally manifest as (e.g. `demand_risk → {substitution, cost_collapse, commoditization}`). Plus **`category_reach(session, category) → CategoryReach`**: the company slices a category touches (via `reach_links` + the stored `exposure_companies.doc`), the union of allowed mechanisms, and the per-ticker valid-revenue-line index — everything the pack renders and the orchestrator post-validates against. Pure read; empty when unmapped.
+3. **Input pack — `checkpoints/impact_pack.py`** (`BRIEF_PACK_VERSION=1`). `build_brief_pack` assembles 4 sections (doc 08 §3): the latest *ok* card, a momentum summary, **only the matched map slices** (`category_reach`), and the mechanism taxonomy verbatim (`MECHANISM_TAXONOMY`). Pure/deterministic/as-of-correct/bounded (48k cap). Returns the `CategoryReach` so the orchestrator validates against the exact surface the model saw.
+4. **Provider — `checkpoints/llm.py`.** Refactored to a generic `_complete(...)` and added **`complete_brief`** (tool `emit_brief`, `max_tokens=3072`) alongside `complete_card`; `_ollama`/`_anthropic` now take tool name/description/max_tokens. `anthropic` still the only SDK import (invariant 3 green). ollama now passes `num_predict`.
+5. **Orchestrator — `checkpoints/impact.py`.** `run_brief(session, as_of, *, entity_id=None, week_start=None, limit=None)`: candidates = the gate's **passed** queue for the week (or a forced `entity_id`), skipping entities that already have a live draft/published brief (queue mode is idempotent) → build pack → deterministic `mock`/fallback brief → **budget ceiling → `pending`** (A-12) → `complete_brief` → `_validate` (schema) + **`_post_validate`** (every ticker exposure's `revenue_line` exists for that ticker; every mechanism legal for the touched relations) with **one retry then `failed`** → store `impact_briefs` version+1 as **`draft`** (DR-08.2). `week_as_of()` helper matches the gate's scoring instant.
+6. **CLI — `seismo brief`.** `--entity-id N` forces one (bypasses the gate, always appends a version); `--week 2026-W28` briefs the whole passed queue; `--as-of`, `--limit`. Wired with `record_pipeline_run`.
+7. **API — `api/app.py` + `api/models.py`.** `GET /briefs` (review inbox — latest version per entity, draft+published by default), `GET /briefs/{entity_id}` (detail, `?version=`), `POST /briefs/{brief_id}/decision?decision=publish|reject&reason=` (bearer-gated; only a `draft` is decidable, published/rejected are immutable → 409; reject stores `_reject_reason` in the JSONB). Models: `Brief`, `BriefListItem`, `BriefExposure`/`BriefObservable`/`BriefTransmissionStep`, `BriefDecisionResult`.
+8. **Dashboard.** Nav gained **"Briefs"**. `app/brief/page.tsx` = review inbox (status chips, mechanisms, exposure count). `app/brief/[id]/page.tsx` = full brief render (summary + mechanism chips, exposures table with direction colours, transmission path, counter-mechanism, observables with system/manual tags, evidence refs) + `components/BriefActions.tsx` (client publish/reject-with-reason POST). `next build` green — **6 routes**. `lib/types.ts`/`api.ts` mirror the new models (still hand-kept).
+
+### 20.2 Verified
+- **Unit:** `tests/test_impact.py` (10) — contract accept/reject + summary truncation + tool-schema enum; pack deterministic/as-of/**map-scoped** (an unrelated company must NOT leak); post-validation rejects unknown revenue_line + illegal mechanism; mock end-to-end stores a valid versioned `draft`; budget→`pending`; queue-mode briefs only the passed set and skips existing. `tests/test_api.py` +1 (inbox/detail/publish→409). **`mypy src` clean, ruff clean, invariant-3 grep clean.**
+- **Live end-to-end:** `uv run seismo brief --entity-id 2857` (inference-runtime, "Linear Attention Architectures") against **ollama qwen2.5:3b** → `drafted=1 failed=0`, stored `impact_briefs` id 18 v1 `status=draft`. Real content: mechanism `enablement`, a `sector_class:semiconductors` datacenter exposure (ambiguous/marginal), a **fair counter-mechanism** (AMD chiplet cost/perf advantages), a 2-step transmission path, 1 observable. Schema + post-validation both passed on the real model output — the guardrails work on live generations, not just mocks.
+
+### 20.3 Gotchas / learnings (don't relearn)
+- **Tests hitting a real model by accident.** `.env` sets `SEISMO_LLM_PROVIDER=ollama` and the Ollama app is often open, so any test that calls `run_brief`/`run_comprehend` without forcing `mock` will **hit the local model** (non-deterministic — one impact test flip-flopped pass/fail this way). `test_impact.py` has an **autouse fixture forcing `settings.llm_provider="mock"`**; do the same for any new end-to-end LLM test. (The pre-existing comprehension mock tests are quietly relying on ollama being lenient — fragile, but not ours to fix now.)
+- **`clean_db` does NOT clear `exposure_companies`/`reach_links`** (the map is global, like the seed). So a test that uses a **real** category slug (e.g. `inference-runtime`) pulls in the **loaded map's real reach + companies** on top of any synthetic ones — which broke two impact tests until switched to a synthetic `ztest-category`/`ZTST` that never collides. Use synthetic map surfaces in tests, or add those two tables to `_CLEAR_TABLES` if a future test needs a clean map.
+- **Post-validation only checks `revenue_line` for `kind='ticker'`** — a `sector_class` exposure may carry a `revenue_line` (the live qwen brief did) and that's allowed. Mechanism-legality only applies when the reach is non-empty (an unmapped forced entity has no surface to test against; the gate hard-excludes those anyway, A-6).
+- **No migration for Stage 7** — `impact_briefs` has existed since 0001 (entity_id, version, as_of, brief JSONB, status default `draft`, model, cost_usd, reviewed_at). Reject reasons live inside the `brief` JSONB (`_reject_reason`), not a new column.
+- **`impact.py` imports `significance.exposure`** — a one-way `checkpoints → significance` dependency (no cycle; significance never imports checkpoints). Fine, but keep it one-way.
+
+### 20.4 The daily heartbeat now has a brief step
+`scripts/daily.sh` does **not** yet run `seismo gate` / `seismo brief` — the heartbeat stops at `comprehend`. To close the loop once momentum is live: add `seismo gate --week $(current)` then `seismo brief --week $(current)` after `comprehend` (briefs are drafts, so this is safe to automate; humans still publish). Deferred because with everything `dormant` the gate passes nobody.
+
+### 20.5 NEXT (pick one)
+1. **Stage 8 — Memory & scoring (doc 09).** Forward-score published briefs against their observables; `brief_scores` table already exists (brief_id, scored_at, materialized, falsifier_tripped, notes). This is the calibration loop that eventually earns auto-publish (DR-08.2).
+2. **H2 DeepSeek hindcast** — the Stage-7 DoD. Machinery is done; needs the heavy GH Archive `backfill-stars --repos deepseek-ai` → resolve → snapshot/score `--as-of 2024-05-31` → comprehend → gate → `brief --entity-id`, with `SEISMO_MODEL_HINDCAST` pinned (A-8). Assert cost_collapse + commoditization + NVDA/MSFT/GOOGL exposures + a real counter + dated observables. Hundreds of GB — run once during validation.
+3. **Curate the exposure map 8 → 30 companies** with sourced (not placeholder) revenue figures from 10-K segment notes (doc 08 §5). This directly widens what the gate + briefs can reach; it's operator curation, not code.
+4. **Wire gate+brief into `scripts/daily.sh`** (§20.4) once momentum is live.

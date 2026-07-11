@@ -316,10 +316,35 @@ def gate(
 
 
 @app.command()
-def brief(entity_id: int = typer.Option(..., help="Entity to brief.")) -> None:
-    """Layer 6 — impact checkpoint (doc 08)."""
-    with record_pipeline_run(f"brief:{entity_id}"):
-        typer.echo(f"[brief] entity_id={entity_id} — not implemented yet")
+def brief(
+    entity_id: int = typer.Option(None, help="Force a brief for one entity (bypasses the gate)."),
+    week: str = typer.Option(None, help="ISO week, e.g. 2026-W28; briefs the whole passed queue."),
+    as_of: str = typer.Option(None, help="ISO date; default now (or the week's end when --week)."),
+    limit: int = typer.Option(None, help="Cap the number of passed entities briefed."),
+) -> None:
+    """Layer 6 — impact checkpoint (doc 08). LLM checkpoint 2: draft an evidence-linked exposure
+    brief for each entity the significance gate passed (or one forced with ``--entity-id``). Briefs
+    are stored ``draft`` for human review before publish (DR-08.2)."""
+    from seismo.checkpoints.impact import run_brief, week_as_of
+    from seismo.db import session_scope
+    from seismo.significance.gate import parse_week
+
+    week_start = parse_week(week) if week else None
+    if as_of is not None:
+        when = _parse_as_of(as_of)
+    elif week_start is not None:
+        when = week_as_of(week_start)
+    else:
+        when = _parse_as_of(None)
+
+    with record_pipeline_run("brief", when):
+        with session_scope() as session:
+            stats = run_brief(
+                session, when, entity_id=entity_id, week_start=week_start, limit=limit
+            )
+        typer.echo(
+            f"[brief] provider={settings.llm_provider} as_of={when.date()} — {stats.as_note()}"
+        )
 
 
 @app.command()

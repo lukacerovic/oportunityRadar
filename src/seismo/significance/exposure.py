@@ -45,6 +45,24 @@ RELATIONS = frozenset(
 
 SHARE_SUM_CEILING = 1.05  # doc 08 §1: revenue shares may sum slightly >1 (overlap), never far
 
+# Which impact mechanisms (idea-spec §7, ``contracts.MECHANISMS``) a map ``relation`` can legally
+# manifest as. The impact checkpoint's mechanism-legality post-validation (doc 08 §2) requires every
+# mechanism a brief names to be permitted by at least one relation on the map surface the entity's
+# category touches — a guardrail against a brief inventing a transmission unrelated to any mapped
+# edge (e.g. claiming ``enablement`` when the only surface it touches is a substitution relation).
+RELATION_MECHANISMS: dict[str, frozenset[str]] = {
+    # efficiency shrinks unit demand — driven by a cheaper substitute, an input-cost collapse, or
+    # the capability becoming a commodity (the DeepSeek-vs-GPU-demand surface is a demand_risk edge).
+    "demand_risk": frozenset({"substitution", "cost_collapse", "commoditization"}),
+    "substitution_partial": frozenset({"substitution", "commoditization"}),
+    "substitution_full": frozenset({"substitution", "commoditization"}),
+    "commoditization": frozenset({"commoditization", "cost_collapse"}),
+    "cost_collapse": frozenset({"cost_collapse", "commoditization"}),
+    "enablement": frozenset({"enablement"}),
+    "dependency_risk": frozenset({"dependency_risk"}),
+    "margin_pressure": frozenset({"commoditization", "substitution", "cost_collapse"}),
+}
+
 
 class ThreatSurface(BaseModel):
     """One (category → revenue line) exposure edge — the atom a ``reach_link`` derives from."""
@@ -131,6 +149,116 @@ def derive_reach_links(doc: ExposureCompanyDoc) -> list[DerivedReachLink]:
             elif ts.core:
                 existing.core = True
     return list(out.values())
+
+
+@dataclass
+class RevenueLineSlice:
+    """One revenue line of an exposed company, with only the threat entries matching the entity's
+    category kept — the pre-selected surface the impact checkpoint reasons over (doc 08 §3)."""
+
+    id: str
+    name: str
+    share_of_revenue: float
+    source: str
+    threats: list[tuple[str, bool]]  # (relation, core) for the matching category only
+
+
+@dataclass
+class CompanySlice:
+    ticker: str
+    name: str
+    sector: str
+    moat_notes: str | None
+    sensitivity_notes: str | None
+    lines: list[RevenueLineSlice]  # only lines whose threat_surface touches the category
+
+
+@dataclass
+class CategoryReach:
+    """Everything the impact layer needs about how one category touches the map: the company slices
+    to put in the pack, the mechanisms the touched relations legally permit, and the (ticker →
+    revenue-line-ids) index the brief's ticker exposures are post-validated against (doc 08 §2)."""
+
+    category: str
+    slices: list[CompanySlice]
+    allowed_mechanisms: frozenset[str]
+    valid_lines: dict[str, set[str]]  # ticker → every revenue_line id that ticker has in the map
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.slices
+
+
+def category_reach(session: Session, category: str | None) -> CategoryReach:
+    """Assemble the map slices a given category touches (via ``reach_links``) plus the derived
+    mechanism-legality set and per-ticker revenue-line index. Pure read; returns an empty reach when
+    the category is unmapped (the gate hard-excludes those before a brief is ever requested, A-6)."""
+    empty = CategoryReach(category or "", [], frozenset(), {})
+    if not category:
+        return empty
+    links = session.execute(
+        text(
+            "SELECT ticker, revenue_line, relation, core FROM reach_links WHERE category = :c "
+            "ORDER BY ticker, revenue_line"
+        ),
+        {"c": category},
+    ).mappings().all()
+    if not links:
+        return empty
+
+    tickers = sorted({row["ticker"] for row in links})
+    docs = {
+        row["ticker"]: row["doc"]
+        for row in session.execute(
+            text("SELECT ticker, doc FROM exposure_companies WHERE ticker = ANY(:t)"),
+            {"t": tickers},
+        ).mappings()
+    }
+
+    # (ticker, line) → [(relation, core)] for the matching category only.
+    by_line: dict[tuple[str, str], list[tuple[str, bool]]] = {}
+    relations: set[str] = set()
+    for row in links:
+        by_line.setdefault((row["ticker"], row["revenue_line"]), []).append(
+            (row["relation"], bool(row["core"]))
+        )
+        relations.add(row["relation"])
+
+    slices: list[CompanySlice] = []
+    valid_lines: dict[str, set[str]] = {}
+    for ticker in tickers:
+        doc = docs.get(ticker) or {}
+        all_lines = {ln["id"] for ln in doc.get("revenue_lines", [])}
+        valid_lines[ticker] = all_lines
+        line_index = {ln["id"]: ln for ln in doc.get("revenue_lines", [])}
+        line_slices: list[RevenueLineSlice] = []
+        for (t, line_id), threats in by_line.items():
+            if t != ticker:
+                continue
+            ln = line_index.get(line_id, {})
+            line_slices.append(
+                RevenueLineSlice(
+                    id=line_id,
+                    name=ln.get("name", line_id),
+                    share_of_revenue=float(ln.get("share_of_revenue", 0.0)),
+                    source=ln.get("source", ""),
+                    threats=sorted(threats),
+                )
+            )
+        line_slices.sort(key=lambda s: (-s.share_of_revenue, s.id))
+        slices.append(
+            CompanySlice(
+                ticker=ticker,
+                name=doc.get("name", ticker),
+                sector=doc.get("sector", ""),
+                moat_notes=doc.get("moat_notes"),
+                sensitivity_notes=doc.get("sensitivity_notes"),
+                lines=line_slices,
+            )
+        )
+
+    allowed = frozenset().union(*(RELATION_MECHANISMS.get(r, frozenset()) for r in relations))
+    return CategoryReach(category, slices, allowed, valid_lines)
 
 
 @dataclass

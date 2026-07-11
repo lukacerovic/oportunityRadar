@@ -178,3 +178,73 @@ class GateWeekResponse(BaseModel):
     suppressed: list[GateDecisionItem]
     map_gaps: dict[str, int]
     available_weeks: list[str]  # ISO weeks that have decisions, newest first (for navigation)
+
+
+# --- impact brief (doc 08 §2 — the review page) -----------------------------
+
+
+class BriefTransmissionStep(BaseModel):
+    from_node: str
+    to_node: str
+    effect: str
+
+
+class BriefObservable(BaseModel):
+    statement: str
+    source: str  # system | manual
+    system_metric: str | None = None
+    horizon: str
+    direction_if_thesis_holds: str  # up | down | flat
+
+
+class BriefExposure(BaseModel):
+    kind: str  # ticker | sector_class
+    ref: str
+    revenue_line: str | None = None
+    direction: str  # negative | positive | ambiguous
+    magnitude_class: str  # marginal | material | structural
+
+
+class Brief(BaseModel):
+    """One impact-brief version (doc 08 §2) as stored, plus its review envelope."""
+
+    id: int
+    entity_id: int
+    entity_name: str
+    version: int
+    as_of: datetime
+    status: str  # draft | published | rejected | failed | pending
+    model: str | None
+    reviewed_at: datetime | None
+    reject_reason: str | None = None
+    entity_ref: str | None = None
+    mechanisms: list[str] = []
+    transmission_path: list[BriefTransmissionStep] = []
+    exposures: list[BriefExposure] = []
+    counter_mechanism: str | None = None
+    observables: list[BriefObservable] = []
+    confidence: str | None = None
+    horizon: str | None = None
+    summary: str | None = None
+    evidence_refs: list[int] = []
+    versions: list[int] = []  # all versions for this entity, newest first
+
+
+class BriefListItem(BaseModel):
+    """One row in the review inbox (doc 08 §4)."""
+
+    id: int
+    entity_id: int
+    entity_name: str
+    version: int
+    status: str
+    as_of: datetime
+    created_at: datetime
+    mechanisms: list[str] = []
+    n_exposures: int = 0
+    summary: str | None = None
+
+
+class BriefDecisionResult(BaseModel):
+    id: int
+    status: str

@@ -23,7 +23,9 @@ from typing import Any
 from seismo.config import settings
 
 CARD_TOOL_NAME = "emit_card"
+BRIEF_TOOL_NAME = "emit_brief"
 _MAX_TOKENS = 2048
+_BRIEF_MAX_TOKENS = 3072  # the brief schema (transmission path + exposures + observables) is larger
 
 # Rough per-MTok (input, output) USD, for cost logging + the budget ceiling only. Confirm against
 # the current price sheet at go-live; dev/CI never spends (mock/ollama = $0).
@@ -53,13 +55,59 @@ def complete_card(
 ) -> LLMResult:
     """Produce a comprehension card as structured JSON. ``fallback`` is the deterministic card the
     ``mock`` provider returns verbatim (and the shape real providers must match)."""
+    return _complete(
+        system,
+        user,
+        schema,
+        fallback=fallback,
+        purpose=purpose,
+        tool_name=CARD_TOOL_NAME,
+        tool_description="Return the comprehension card for this entity.",
+        max_tokens=_MAX_TOKENS,
+    )
+
+
+def complete_brief(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+    purpose: str = "live",
+) -> LLMResult:
+    """Produce an impact brief as structured JSON (doc 08 checkpoint 2). Same forced-tool-call
+    discipline as :func:`complete_card`; ``fallback`` is the deterministic draft the ``mock``
+    provider returns verbatim."""
+    return _complete(
+        system,
+        user,
+        schema,
+        fallback=fallback,
+        purpose=purpose,
+        tool_name=BRIEF_TOOL_NAME,
+        tool_description="Return the impact brief for this entity.",
+        max_tokens=_BRIEF_MAX_TOKENS,
+    )
+
+
+def _complete(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+    purpose: str,
+    tool_name: str,
+    tool_description: str,
+    max_tokens: int,
+) -> LLMResult:
     provider = settings.llm_provider
     if provider == "mock":
         return LLMResult(content=fallback, model="mock", cost_usd=Decimal(0))
     if provider == "ollama":
-        return _ollama(system, user, schema)
+        return _ollama(system, user, schema, max_tokens)
     if provider == "anthropic":
-        return _anthropic(system, user, schema, purpose)
+        return _anthropic(system, user, schema, tool_name, tool_description, max_tokens, purpose)
     raise ValueError(f"unknown LLM provider {provider!r}")
 
 
@@ -71,7 +119,7 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> Decimal:
     )
 
 
-def _ollama(system: str, user: str, schema: dict[str, Any]) -> LLMResult:
+def _ollama(system: str, user: str, schema: dict[str, Any], max_tokens: int) -> LLMResult:
     import httpx
 
     model = settings.ollama_model
@@ -85,7 +133,7 @@ def _ollama(system: str, user: str, schema: dict[str, Any]) -> LLMResult:
             ],
             "format": schema,  # ollama structured outputs: constrain to the JSON schema
             "stream": False,
-            "options": {"temperature": 0.2},
+            "options": {"temperature": 0.2, "num_predict": max_tokens},
         },
         timeout=300.0,
     )
@@ -101,7 +149,15 @@ def _ollama(system: str, user: str, schema: dict[str, Any]) -> LLMResult:
     )
 
 
-def _anthropic(system: str, user: str, schema: dict[str, Any], purpose: str) -> LLMResult:
+def _anthropic(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    tool_name: str,
+    tool_description: str,
+    max_tokens: int,
+    purpose: str,
+) -> LLMResult:
     import anthropic
 
     model = settings.model_hindcast if purpose == "hindcast" else settings.model_live
@@ -113,16 +169,16 @@ def _anthropic(system: str, user: str, schema: dict[str, Any], purpose: str) -> 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
     message = client.messages.create(
         model=model,
-        max_tokens=_MAX_TOKENS,
+        max_tokens=max_tokens,
         system=system,
         tools=[
             {
-                "name": CARD_TOOL_NAME,
-                "description": "Return the comprehension card for this entity.",
+                "name": tool_name,
+                "description": tool_description,
                 "input_schema": schema,
             }
         ],
-        tool_choice={"type": "tool", "name": CARD_TOOL_NAME},
+        tool_choice={"type": "tool", "name": tool_name},
         messages=[{"role": "user", "content": user}],
     )
     block = next(b for b in message.content if b.type == "tool_use")

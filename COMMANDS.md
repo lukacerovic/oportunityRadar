@@ -90,6 +90,23 @@ uv run seismo comprehend --limit 20               # cap how many candidates this
 for id in 5418 5564 5895 6930 8759; do uv run seismo comprehend --entity $id; done
 ```
 
+---
+
+## 4b. Significance gate + impact briefs (Stage 6/7)
+
+```bash
+uv run seismo load-map                             # load exposure_map/*.yaml → companies + reach_links
+uv run seismo gate  --week 2026-W28                # deterministic M×R×N pick of ≤5 briefs/week (no LLM)
+uv run seismo brief --week 2026-W28                # draft an impact brief for each entity the gate passed
+uv run seismo brief --entity-id 2857               # FORCE a brief for one entity (bypasses the gate)
+```
+
+- The gate passes nobody while everything is `dormant` — it needs `accelerating`/`breakout` momentum.
+- Briefs are stored **`draft`**; publish/reject them in the dashboard (`/brief`) — humans gate publish (DR-08.2).
+- `brief --week` is idempotent: it skips entities that already have a live draft/published brief.
+- A ticker exposure's `revenue_line` must exist in the map and its mechanism must be legal for the touched
+  relation, or the brief is retried once then stored `failed` (post-validation, doc 08 §2).
+
 - Provider comes from `.env` (`ollama` now). $0 and local. Keep the Ollama app open.
 - Cards appear in the dashboard Dossier on refresh. Forcing `--entity` always adds a new version.
 - Better prose: `ollama pull qwen2.5:7b-instruct` then set `SEISMO_OLLAMA_MODEL=qwen2.5:7b-instruct` in `.env`.

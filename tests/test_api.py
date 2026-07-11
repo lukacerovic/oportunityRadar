@@ -268,3 +268,64 @@ def test_queue_and_merge_decision(clean_db: Session) -> None:
     assert merged_into == a
     # queue item is resolved -> no longer pending.
     assert not client.get("/queue").json()
+
+
+def test_briefs_inbox_detail_and_review(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    eid = _entity(session, "vllm", created=t0, category="inference-runtime")
+    body = {
+        "entity_ref": "vllm",
+        "mechanisms": ["substitution"],
+        "transmission_path": [{"from_node": "vllm", "to_node": "cost", "effect": "falls"}],
+        "exposures": [
+            {"kind": "ticker", "ref": "NVDA", "revenue_line": "datacenter",
+             "direction": "negative", "magnitude_class": "material"}
+        ],
+        "counter_mechanism": "Jevons.",
+        "observables": [
+            {"statement": "tokens/customer", "source": "system", "system_metric": "x",
+             "horizon": "quarters", "direction_if_thesis_holds": "down"}
+        ],
+        "confidence": "med",
+        "horizon": "1-2y",
+        "summary": "a thesis",
+        "evidence_refs": [1],
+    }
+    brief_id = int(
+        session.execute(
+            text(
+                "INSERT INTO impact_briefs (entity_id, version, as_of, brief, status, model)"
+                " VALUES (:e, 1, :as_of, CAST(:b AS JSONB), 'draft', 'mock') RETURNING id"
+            ),
+            {"e": eid, "as_of": t0, "b": _json(body)},
+        ).scalar_one()
+    )
+    session.flush()
+    client = _client(session)
+
+    # inbox shows the draft
+    inbox = client.get("/briefs").json()
+    assert any(row["id"] == brief_id and row["status"] == "draft" for row in inbox)
+
+    # detail renders the schema
+    d = client.get(f"/briefs/{eid}").json()
+    assert d["mechanisms"] == ["substitution"]
+    assert d["exposures"][0]["ref"] == "NVDA"
+    assert d["counter_mechanism"] == "Jevons."
+    assert d["versions"] == [1]
+
+    # reject requires a reason
+    assert client.post(f"/briefs/{brief_id}/decision", params={"decision": "reject"}).status_code == 400
+
+    # publish flips status; a second decision on a non-draft 409s (immutable)
+    res = client.post(f"/briefs/{brief_id}/decision", params={"decision": "publish"}).json()
+    assert res["status"] == "published"
+    assert (
+        client.post(f"/briefs/{brief_id}/decision", params={"decision": "publish"}).status_code
+        == 409
+    )
+    status = session.execute(
+        text("SELECT status FROM impact_briefs WHERE id = :id"), {"id": brief_id}
+    ).scalar_one()
+    assert status == "published"
