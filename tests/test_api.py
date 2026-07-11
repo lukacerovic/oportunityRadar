@@ -279,13 +279,23 @@ def test_briefs_inbox_detail_and_review(clean_db: Session) -> None:
         "mechanisms": ["substitution"],
         "transmission_path": [{"from_node": "vllm", "to_node": "cost", "effect": "falls"}],
         "exposures": [
-            {"kind": "ticker", "ref": "NVDA", "revenue_line": "datacenter",
-             "direction": "negative", "magnitude_class": "material"}
+            {
+                "kind": "ticker",
+                "ref": "NVDA",
+                "revenue_line": "datacenter",
+                "direction": "negative",
+                "magnitude_class": "material",
+            }
         ],
         "counter_mechanism": "Jevons.",
         "observables": [
-            {"statement": "tokens/customer", "source": "system", "system_metric": "x",
-             "horizon": "quarters", "direction_if_thesis_holds": "down"}
+            {
+                "statement": "tokens/customer",
+                "source": "system",
+                "system_metric": "x",
+                "horizon": "quarters",
+                "direction_if_thesis_holds": "down",
+            }
         ],
         "confidence": "med",
         "horizon": "1-2y",
@@ -316,7 +326,10 @@ def test_briefs_inbox_detail_and_review(clean_db: Session) -> None:
     assert d["versions"] == [1]
 
     # reject requires a reason
-    assert client.post(f"/briefs/{brief_id}/decision", params={"decision": "reject"}).status_code == 400
+    assert (
+        client.post(f"/briefs/{brief_id}/decision", params={"decision": "reject"}).status_code
+        == 400
+    )
 
     # publish flips status; a second decision on a non-draft 409s (immutable)
     res = client.post(f"/briefs/{brief_id}/decision", params={"decision": "publish"}).json()
@@ -329,3 +342,93 @@ def test_briefs_inbox_detail_and_review(clean_db: Session) -> None:
         text("SELECT status FROM impact_briefs WHERE id = :id"), {"id": brief_id}
     ).scalar_one()
     assert status == "published"
+
+
+def test_changes_and_calibration_and_scoring(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    e = _entity(session, "riser", created=t0)
+    # a change row
+    session.execute(
+        text(
+            "INSERT INTO changes_daily (day, kind, entity_id, text, payload) "
+            "VALUES (:d, 'state_up', :e, '↑ riser: simmering → breakout', '{}')"
+        ),
+        {"d": t0.date(), "e": e},
+    )
+    # a calibration snapshot
+    session.execute(
+        text(
+            "INSERT INTO calibration_snapshots (day, metric, value, sample_n, detail) "
+            "VALUES (:d, 'breakout_survival', 0.6, 5, '{}')"
+        ),
+        {"d": t0.date()},
+    )
+    # a published brief with a system observable to auto-evaluate
+    body = {
+        "entity_ref": "riser",
+        "mechanisms": ["substitution"],
+        "transmission_path": [{"from_node": "a", "to_node": "b", "effect": "x"}],
+        "exposures": [
+            {
+                "kind": "ticker",
+                "ref": "NVDA",
+                "revenue_line": "datacenter",
+                "direction": "negative",
+                "magnitude_class": "material",
+            }
+        ],
+        "counter_mechanism": "jevons",
+        "observables": [
+            {
+                "statement": "downloads fall",
+                "source": "system",
+                "system_metric": "hf_downloads_30d",
+                "horizon": "quarters",
+                "direction_if_thesis_holds": "down",
+            }
+        ],
+        "confidence": "med",
+        "horizon": "quarters",
+        "summary": "s",
+        "evidence_refs": [],
+    }
+    bid = int(
+        session.execute(
+            text(
+                "INSERT INTO impact_briefs (entity_id, version, as_of, brief, status, model,"
+                " reviewed_at, created_at) VALUES (:e, 1, :t, CAST(:b AS JSONB), 'published',"
+                " 'mock', :t, :t) RETURNING id"
+            ),
+            {"e": e, "t": t0, "b": _json(body)},
+        ).scalar_one()
+    )
+    # both points must fall within [published, now]; the score-packet endpoint uses the real clock,
+    # so keep d1 shortly after publication (not months out, which would land in the future).
+    session.execute(
+        text(
+            "INSERT INTO entity_metrics_daily (entity_id, metric, day, value) VALUES "
+            "(:e, 'hf_downloads_30d', :d0, 1000), (:e, 'hf_downloads_30d', :d1, 400)"
+        ),
+        {"e": e, "d0": t0.date(), "d1": (t0 + timedelta(days=14)).date()},
+    )
+    session.flush()
+    client = _client(session)
+
+    ch = client.get(f"/changes/{t0.date().isoformat()}").json()
+    assert ch["total"] == 1 and "state_up" in ch["groups"]
+
+    cal = client.get("/calibration").json()
+    assert cal["latest"]["breakout_survival"]["value"] == 0.6
+
+    packet = client.get(f"/briefs/{e}/score-packet").json()
+    assert packet["observable_evals"][0]["status"] == "on_track"  # downloads fell, thesis said down
+
+    res = client.post(
+        f"/briefs/{bid}/score", params={"materialized": "yes", "counter_was_better": "true"}
+    ).json()
+    assert res["materialized"] == "yes"
+    stored = session.execute(
+        text("SELECT materialized FROM brief_scores WHERE brief_id = :b"), {"b": bid}
+    ).scalar_one()
+    assert stored == "yes"

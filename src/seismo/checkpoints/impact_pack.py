@@ -8,7 +8,8 @@ pack-builder change is auditable. It assembles four sections (doc 08 §3):
 2. a momentum summary (state history, promotions, velocity percentile),
 3. **only the exposure-map slices whose ``reach_links`` match this entity's category** — never the
    whole map; the model reasons over a pre-selected surface, and
-4. the mechanism taxonomy verbatim (idea-spec §7), so the brief names transmissions from a closed set.
+4. the mechanism taxonomy verbatim (idea-spec §7), so the brief names transmissions from a closed
+   set.
 
 Every read is as-of correct (canonical entity + ``occurred_at <= as_of``), so a hindcast brief sees
 only what was knowable then. The builder also returns the :class:`CategoryReach` it selected, so the
@@ -94,12 +95,7 @@ def build_brief_pack(session: Session, entity_id: int, as_of: datetime) -> Brief
 
 
 def _header(name: str, etype: str, category: str | None) -> str:
-    return (
-        "# Entity\n"
-        f"- name: {name}\n"
-        f"- type: {etype}\n"
-        f"- category: {category or 'uncategorized'}"
-    )
+    return f"# Entity\n- name: {name}\n- type: {etype}\n- category: {category or 'uncategorized'}"
 
 
 def _card_block(card: dict[str, Any]) -> str:

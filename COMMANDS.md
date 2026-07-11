@@ -107,6 +107,21 @@ uv run seismo brief --entity-id 2857               # FORCE a brief for one entit
 - A ticker exposure's `revenue_line` must exist in the map and its mechanism must be legal for the touched
   relation, or the brief is retried once then stored `failed` (post-validation, doc 08 §2).
 
+---
+
+## 4c. Memory & synthesis (Stage 8)
+
+```bash
+uv run seismo changes                              # deterministic daily deltas → changes_daily (in daily.sh)
+uv run seismo calibrate                            # momentum-call review → calibration_snapshots (monthly)
+```
+
+- `changes` renders in the dashboard **Changes** tab; it's cheap ($0, no LLM) and part of `daily.sh`.
+- `calibrate` reads **n=0 until ~90 days** of daily momentum accrue (breakout-survival needs ≥90d-old calls) —
+  that's expected, not a bug; run it monthly.
+- **Brief forward-scoring** is a UI ritual (doc 09 §2): open a **published** brief in the dashboard → the
+  scoring panel auto-evaluates its `system` observables (A-7) and you record materialized/falsifier/verdict.
+
 - Provider comes from `.env` (`ollama` now). $0 and local. Keep the Ollama app open.
 - Cards appear in the dashboard Dossier on refresh. Forcing `--entity` always adds a new version.
 - Better prose: `ollama pull qwen2.5:7b-instruct` then set `SEISMO_OLLAMA_MODEL=qwen2.5:7b-instruct` in `.env`.

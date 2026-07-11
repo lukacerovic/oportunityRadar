@@ -1,5 +1,6 @@
 """Stage 7 — Impact brief (doc 08). The contract + its post-validation, the deterministic input
-pack (map-slice selection, as-of correctness), the mock end-to-end path (fallback → draft → versioned
+pack (map-slice selection, as-of correctness), the mock end-to-end path (fallback → draft →
+versioned
 store), the budget-ceiling → ``pending`` rail, and candidate selection from the gate's passed queue.
 
 Runs on ``clean_db`` with the default ``mock`` provider ($0). ``exposure_companies``/``reach_links``
@@ -25,7 +26,7 @@ from seismo.config import settings
 
 _UID = itertools.count(1)
 # A synthetic category + ticker that never collide with the loaded 8-company map (clean_db does not
-# clear reach_links/exposure_companies — the map is global — so a real slug would leak real surface).
+# clear reach_links/exposure_companies — the map is global — so a real slug would leak real edges).
 CATEGORY = "ztest-category"
 TICKER = "ZTST"
 
@@ -60,12 +61,15 @@ def _company(session: Session, ticker: str, lines: list[dict]) -> None:
     )
 
 
-def _reach(session: Session, category: str, ticker: str, line: str, relation: str, core: bool) -> None:
+def _reach(
+    session: Session, category: str, ticker: str, line: str, relation: str, core: bool
+) -> None:
     session.execute(
         text(
             "INSERT INTO reach_links (category, ticker, revenue_line, relation, core) "
             "VALUES (:c, :t, :l, :r, :core) "
-            "ON CONFLICT (category, ticker, revenue_line, relation) DO UPDATE SET core = EXCLUDED.core"
+            "ON CONFLICT (category, ticker, revenue_line, relation) "
+            "DO UPDATE SET core = EXCLUDED.core"
         ),
         {"c": category, "t": ticker, "l": line, "r": relation, "core": core},
     )
@@ -117,16 +121,16 @@ def _entity(
     ev = int(
         session.execute(
             text(
-                "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at, payload) "
-                "VALUES ('github', :u, 'repo_discovered', :o, '{}') RETURNING id"
+                "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at,"
+                " payload) VALUES ('github', :u, 'repo_discovered', :o, '{}') RETURNING id"
             ),
             {"u": f"t:{next(_UID)}", "o": created},
         ).scalar_one()
     )
     session.execute(
         text(
-            "INSERT INTO entity_links (entity_id, raw_event_id, rule, confidence, evidence_occurred_at)"
-            " VALUES (:e, :ev, 'attach', 1.0, :o)"
+            "INSERT INTO entity_links (entity_id, raw_event_id, rule, confidence,"
+            " evidence_occurred_at) VALUES (:e, :ev, 'attach', 1.0, :o)"
         ),
         {"e": eid, "ev": ev, "o": created},
     )
@@ -263,17 +267,20 @@ def test_post_validation_rejects_unknown_revenue_line(clean_db: Session) -> None
     _map_surface(session)
     t0 = datetime(2024, 1, 1, tzinfo=UTC)
     pack = build_brief_pack(session, _entity(session, created=t0), t0 + timedelta(days=1))
-    bad = ImpactBrief.model_validate(_valid_brief() | {
-        "exposures": [
-            {
-                "kind": "ticker",
-                "ref": TICKER,
-                "revenue_line": "made-up-line",
-                "direction": "negative",
-                "magnitude_class": "material",
-            }
-        ]
-    })
+    bad = ImpactBrief.model_validate(
+        _valid_brief()
+        | {
+            "exposures": [
+                {
+                    "kind": "ticker",
+                    "ref": TICKER,
+                    "revenue_line": "made-up-line",
+                    "direction": "negative",
+                    "magnitude_class": "material",
+                }
+            ]
+        }
+    )
     assert impact._post_validate(bad, pack) is not None
 
 

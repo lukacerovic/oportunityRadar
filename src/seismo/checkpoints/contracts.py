@@ -15,7 +15,7 @@ marketing, not intelligence. Beyond the schema the orchestrator runs a post-vali
 §2) the type system can't express: every ticker exposure's revenue line must exist in the loaded
 map, and every named mechanism must be legal for the relations of the map surface it touches.
 
-Both contracts live in ``checkpoints/`` so the CI invariant-3 grep has a single home to enforce from.
+Both contracts live in ``checkpoints/`` so the CI invariant-3 grep has one home to enforce from.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def card_tool_schema() -> dict[str, Any]:
 
 
 class TransmissionStep(BaseModel):
-    """One hop of the explicit path entity → capability change → affected revenue line (2–5 steps)."""
+    """One hop of the path entity → capability change → affected revenue line (2–5 steps total)."""
 
     from_node: str
     to_node: str

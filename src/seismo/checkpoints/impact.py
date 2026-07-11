@@ -27,7 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from seismo.checkpoints.contracts import ImpactBrief, brief_tool_schema
-from seismo.checkpoints.impact_pack import BRIEF_PACK_VERSION, BriefPack, build_brief_pack
+from seismo.checkpoints.impact_pack import BriefPack, build_brief_pack
 from seismo.checkpoints.llm import complete_brief
 from seismo.config import settings
 
@@ -74,8 +74,8 @@ def run_brief(
     week_start: date | None = None,
     limit: int | None = None,
 ) -> BriefStats:
-    """Draft impact briefs. ``entity_id`` forces one (bypassing the gate); otherwise every entity the
-    gate passed for ``week_start`` that does not yet have a brief is drafted."""
+    """Draft impact briefs. ``entity_id`` forces one (bypassing the gate); otherwise every entity
+    the gate passed for ``week_start`` that does not yet have a brief is drafted."""
     stats = BriefStats()
     if entity_id is not None:
         candidates = [entity_id]
@@ -97,8 +97,15 @@ def run_brief(
         fallback = _deterministic_brief(pack)
 
         if settings.llm_provider != "mock" and month_spent >= budget:
-            _store(session, cid, as_of, fallback, model=settings.llm_provider,
-                   status="pending", cost=Decimal(0))
+            _store(
+                session,
+                cid,
+                as_of,
+                fallback,
+                model=settings.llm_provider,
+                status="pending",
+                cost=Decimal(0),
+            )
             stats.pending += 1
             continue
 
@@ -113,7 +120,9 @@ def run_brief(
     return stats
 
 
-def _generate(pack: BriefPack, fallback: dict[str, Any]) -> tuple[dict[str, Any], str, str, Decimal]:
+def _generate(
+    pack: BriefPack, fallback: dict[str, Any]
+) -> tuple[dict[str, Any], str, str, Decimal]:
     """One generation + one validation retry (doc 08 §2). Returns (brief, status, model, cost).
     A successful brief is stored ``draft`` (human review pending, DR-08.2)."""
     schema = brief_tool_schema()
@@ -177,9 +186,7 @@ def _post_validate(brief: ImpactBrief, pack: BriefPack) -> str | None:
     return None
 
 
-def _passed_candidates(
-    session: Session, week_start: date | None, limit: int | None
-) -> list[int]:
+def _passed_candidates(session: Session, week_start: date | None, limit: int | None) -> list[int]:
     """Entity ids the gate passed. ``week_start=None`` → the most recent week with decisions."""
     if week_start is None:
         week_start = session.execute(text("SELECT MAX(week) FROM gate_decisions")).scalar()
@@ -233,9 +240,11 @@ def _deterministic_brief(pack: BriefPack) -> dict[str, Any]:
                 "magnitude_class": "marginal",
             }
         ]
-    mechanisms = [next(iter(sorted(reach.allowed_mechanisms)))] if reach.allowed_mechanisms else [
-        "enablement"
-    ]
+    mechanisms = (
+        [next(iter(sorted(reach.allowed_mechanisms)))]
+        if reach.allowed_mechanisms
+        else ["enablement"]
+    )
     return {
         "entity_ref": pack.entity_ref,
         "mechanisms": mechanisms,

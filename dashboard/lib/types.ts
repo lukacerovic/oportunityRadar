@@ -196,3 +196,62 @@ export interface BriefListItem {
   n_exposures: number;
   summary: string | null;
 }
+
+export interface ChangeItem {
+  kind: string;
+  entity_id: number | null;
+  text: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ChangesResponse {
+  day: string;
+  groups: Record<string, ChangeItem[]>;
+  total: number;
+  available_days: string[];
+}
+
+export interface CalibrationPoint {
+  day: string;
+  value: number | null;
+  sample_n: number;
+}
+
+export interface CalibrationResponse {
+  series: Record<string, CalibrationPoint[]>;
+  latest: Record<string, CalibrationPoint>;
+}
+
+export interface ObservableEval {
+  statement: string;
+  source: string;
+  system_metric: string | null;
+  direction_if_thesis_holds: string;
+  status: string;
+  detail: string;
+}
+
+export interface ExistingScore {
+  materialized: string | null;
+  falsifier_tripped: boolean | null;
+  verdict: string | null;
+  counter_was_better: boolean | null;
+  falsifier_observable: string | null;
+}
+
+export interface ScorePacketResponse {
+  brief_id: number;
+  entity_id: number;
+  entity_name: string;
+  version: number;
+  published_at: string | null;
+  horizon: string | null;
+  days_elapsed: number;
+  summary: string | null;
+  counter_mechanism: string | null;
+  exposures: BriefExposure[];
+  observable_evals: ObservableEval[];
+  metric_history: Record<string, [string, number][]>;
+  auto_summary: string;
+  existing_score: ExistingScore | null;
+}

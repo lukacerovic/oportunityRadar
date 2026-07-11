@@ -348,6 +348,36 @@ def brief(
 
 
 @app.command()
+def changes(as_of: str = typer.Option(None, help="ISO date; default now.")) -> None:
+    """Layer 7 — the Changes view (doc 09 §1). Deterministic, templated daily deltas (state moves,
+    promotions, brief lifecycle, Monday gate rollup) → ``changes_daily``. No LLM (DR-09.1)."""
+    from seismo.db import session_scope
+    from seismo.memory.changes import compute_changes
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("changes", when):
+        with session_scope() as session:
+            stats = compute_changes(session, when)
+        typer.echo(f"[changes] {stats.as_note()}")
+
+
+@app.command()
+def calibrate(as_of: str = typer.Option(None, help="ISO date; default now.")) -> None:
+    """Layer 7 — momentum-call review (doc 09 §3). Automated: breakout-survival + fade-reaccel
+    ratios → ``calibration_snapshots`` (the calibration track record the dashboard trends)."""
+    from seismo.db import session_scope
+    from seismo.memory.calibration import run_momentum_review
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("calibrate", when):
+        with session_scope() as session:
+            stats = run_momentum_review(session, when)
+        typer.echo(f"[calibrate] {stats.as_note()}")
+        for note in stats.notes:
+            typer.echo(f"  note: {note}")
+
+
+@app.command()
 def hindcast(case: str = typer.Option(..., help="Case name, e.g. deepseek.")) -> None:
     """Validation harness (doc 11)."""
     with record_pipeline_run(f"hindcast:{case}"):

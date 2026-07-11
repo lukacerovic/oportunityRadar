@@ -2,12 +2,12 @@
 
 *Single entry point for any new/compacted session. Read this first. `idea_documentation/technical/seismograph-13-corrections-and-decisions.md` is AUTHORITATIVE on any conflict with other docs. All design lives in `idea_documentation/`; all build state is in git.*
 
-**Last updated: Stages 0–7 DONE + daily heartbeat live + first real brief.** Foundation, Observation, Identity, Trajectory, Comprehension, Dashboard, Significance, **and Impact (Stage 7 = the brief) all shipped**. **Migrations 0001–0004** (`alembic current` = `0004`; Stage 7 needed no migration — `impact_briefs` existed since 0001). FastAPI API (`seismo serve`) + Next.js dashboard (`dashboard/`) render live data; dashboard now has **4 pages: Radar, Gate, Briefs, Queue**. **Running on real data:** `SEISMO_GITHUB_TOKEN` set; **LLM = `ollama`, daily model `qwen2.5:3b-instruct`** (8 GB M2 → 3b for daily, `qwen2.5:7b-instruct` also pulled for batch regens, `llama3.2` fallback). **Dev DB: ~11,480 entities · 13,880 events · 1,501 repo_snapshots · 90 cards across 42 entities · 8 exposure_companies · 47 reach_links · 1 gate_decision · 1 impact_brief (entity 2857, live qwen draft — see §20).** Momentum: mostly `dormant` (real velocity needs ~a week of daily `track`); 1 promotion-driven `breakout` artifact (§19.3).
+**Last updated: Stages 0–8 DONE + daily heartbeat live (now incl. `changes`).** Foundation, Observation, Identity, Trajectory, Comprehension, Dashboard, Significance, Impact, **and Memory & Synthesis (Stage 8) all shipped**. **Migrations 0001–0005** (`alembic current` = `0005`; 0005 = `changes_daily` + `calibration_snapshots`). FastAPI API (`seismo serve`) + Next.js dashboard (`dashboard/`) render live data; dashboard now has **6 pages: Radar, Changes, Gate, Briefs (+scoring), Queue**. **Running on real data:** `SEISMO_GITHUB_TOKEN` set; **LLM = `ollama`, daily model `qwen2.5:3b-instruct`**. **Dev DB: ~11,480 entities · 90 cards · 8 exposure_companies · 47 reach_links · 1 gate_decision · 1 impact_brief (entity 2857) · ~719 changes_daily rows (today) · calibration_snapshots (n=0, needs 90d).** Momentum: mostly `dormant`; 1 cold-start `breakout` artifact (§19.3).
 
-**This session shipped:** **Stage 7 — the Impact Brief (LLM checkpoint 2, doc 08).** Contract (`ImpactBrief` + `brief_tool_schema`), deterministic input pack (`impact_pack.py`), orchestrator (`impact.py` = trigger→pack→forced tool call→schema+post-validation→versioned `draft` store), `seismo brief` CLI, API (`/briefs`, `/briefs/{id}`, `/briefs/{id}/decision`), and the `/brief` + `/brief/[id]` dashboard pages with draft→review→publish/reject. 17 new tests (`test_impact.py` 10 + `test_api.py` +1 + existing). **Verified live:** drafted a real brief for entity 2857 via ollama qwen2.5:3b (§20). Full narrative in **§20 (read it)**.
+**This session shipped:** **Stage 8 — Memory & Synthesis (doc 09).** Deterministic **Changes view** (`memory/changes.py` → `changes_daily`, templated diffs, no LLM), automated **momentum calibration** (`memory/calibration.py` → `calibration_snapshots`: breakout-survival + fade-reaccel), and **brief forward-scoring** (`memory/scoring.py`: assembler + **A-7 auto-evaluation** of `system` observables + `record_score`). Migration 0005, `seismo changes`/`seismo calibrate` CLI (+`changes` in `daily.sh`), API (`/changes/{day}`, `/calibration`, `/briefs/{id}/score-packet`, `/briefs/{id}/score`), dashboard `/changes/[day]` + a scoring panel on published briefs. 9 `test_memory.py` + `test_api.py` +1. Also shipped **Stage 7** earlier this session (§20). Full Stage-8 narrative in **§21**.
 
-**IMMEDIATE next task: Stage 8 — Memory & scoring** (doc 09), OR fill the remaining Stage-7 tails: (a) the **H2 DeepSeek hindcast** (needs the heavy `backfill-stars` — machinery is done, only the spend/replay left) and (b) curating the exposure map from 8 → 30 companies with sourced (not placeholder) revenue figures. See §20.5.
-**To resume:** "Read HANDOFF.md (esp. §20)." Stage 7 is complete and proven; nothing blocks Stage 8.
+**IMMEDIATE next task (pick one, see §21.5):** (a) **prove brief quality** — regenerate a brief or two with the 7B/anthropic model (the 3B daily model is the current quality ceiling, not the schema); (b) **enrich briefs** with scenarios (bull/base/bear exposure branches) + baselined observables (user asked about this — deferred pending scoring, which now exists); (c) **H2 DeepSeek hindcast** (heavy `backfill-stars`); (d) **curate the exposure map 8→30** with real 10-K figures.
+**To resume:** "Read HANDOFF.md (esp. §21)." Stages 0–8 complete; the calibration loop exists but most instruments read n=0 until ~90 days of daily momentum accrue.
 
 ---
 
@@ -57,8 +57,8 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | `b005474` `6074159` |
 | 6 — Significance — A-1 map ✅ + gate engine ✅ + gate dashboard page ✅ (`/gate/[week]`) | ✅ | `0056dff`→ |
 | 7 — Impact (LLM checkpoint 2: brief contract + pack + orchestrator + CLI + API + dashboard) | ✅ core | see §20 |
-| 8 — Memory & scoring (**NEXT**, doc 09) | ⬜ NEXT | — |
-| 9 — Hindcast completion | ⬜ | — |
+| 8 — Memory & Synthesis (changes + calibration + brief forward-scoring w/ A-7 auto-eval) | ✅ core | see §21 |
+| 9 — Hindcast completion (H2 DeepSeek; **NEXT candidate**) | ⬜ | — |
 | 10 — Operations hardening | ⬜ | — |
 
 **Stage 0:** uv project, `src/seismo/` layout, `seismo` CLI, migration 0001 (17 core tables = doc 02 §4), SQLAlchemy models, `as_of` helper + purity test, config, bookkeeping, ruff+mypy+pytest+CI. Exit met.
@@ -97,14 +97,16 @@ dashboard/           Next.js 14 app (App Router, Tailwind, Meridian palette) ←
   identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
   trajectory/        metrics.py cohorts.py velocity.py ladder.py states.py score.py  ← Stage 3
   significance/      exposure.py (A-1 map loader + category_reach + RELATION_MECHANISMS) + gate.py (M×R×N)  ← Stage 6/7
-  memory/ hindcast/   empty (their stages)
+  memory/            changes.py (Changes view) + calibration.py (momentum review) + scoring.py (brief forward-scoring + A-7)  ← Stage 8
+  hindcast/          empty (its stage)
 alembic/versions/0001_core_schema.py    schema source of truth
 alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
 alembic/versions/0003_card_status.py         comprehension_cards.status + pack_version (A-12)
 alembic/versions/0004_reach_link_core.py     reach_links.core flag for the gate's R=1.0 rule (A-1)
+alembic/versions/0005_memory_synthesis.py    changes_daily + calibration_snapshots (Stage 8)
 exposure_map/*.yaml                          8-company slice (NVDA MSFT GOOGL AMZN META AMD AVGO SNOW)
 seed/categories.yaml themes.yaml seed_entities.yaml   vocab + day-1 universe
-tests/               test_asof/config/invariants/collectors/graph_purity/trajectory/comprehension/targets/api/exposure/gate/impact + conftest (db_session, clean_db)
+tests/               test_asof/config/invariants/collectors/graph_purity/trajectory/comprehension/targets/api/exposure/gate/impact/memory + conftest (db_session, clean_db)
 deploy/systemd/      seismo-collect-fast.{service,timer} + seismo-track.{service,timer} + README.md
 scripts/check_llm_import.sh   invariant-3 grep
 seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
@@ -437,3 +439,40 @@ Built Stage 7 exactly to the §19.5 plan (which is now DONE — the plan text ab
 2. **H2 DeepSeek hindcast** — the Stage-7 DoD. Machinery is done; needs the heavy GH Archive `backfill-stars --repos deepseek-ai` → resolve → snapshot/score `--as-of 2024-05-31` → comprehend → gate → `brief --entity-id`, with `SEISMO_MODEL_HINDCAST` pinned (A-8). Assert cost_collapse + commoditization + NVDA/MSFT/GOOGL exposures + a real counter + dated observables. Hundreds of GB — run once during validation.
 3. **Curate the exposure map 8 → 30 companies** with sourced (not placeholder) revenue figures from 10-K segment notes (doc 08 §5). This directly widens what the gate + briefs can reach; it's operator curation, not code.
 4. **Wire gate+brief into `scripts/daily.sh`** (§20.4) once momentum is live.
+
+---
+
+## 21. SESSION LOG (2026-07-11, cont.) — Stage 8 Memory & Synthesis, SHIPPED
+
+Built Stage 8 (doc 09) right after Stage 7, in the same session. The user asked whether the briefs were "good enough" / should get investor features (KPIs, scenarios); the answer chosen was **build the scoring loop first** — you validate the briefs before enriching them. So this stage is the calibration machinery.
+
+### 21.1 What shipped (files)
+1. **Migration 0005** — `changes_daily` (deterministic Changes view rows) + `calibration_snapshots` (momentum-review time series, PK `(day, metric)`). `brief_scores` already existed since 0001. Additive only.
+2. **`memory/changes.py`** — `compute_changes(session, as_of, prev_day=None)`: deterministic, **templated** daily deltas (DR-09.1, **no LLM**) → `changes_daily`. Kinds: `new_entity` (first-evidence exactly 7d old = survived the gate, with card one-liner), `state_up`/`state_down` (momentum vs prev day, by heat ordering; `fading` is cold), `promotion`, `brief_drafted`/`brief_published`, and a Monday-only `gate_week` rollup. Re-runnable (deletes the day first).
+3. **`memory/calibration.py`** — `run_momentum_review(session, as_of)`: **breakout survival** (share of ≥90d-old breakout calls still simmering+) and **fade false-alarm** (share of fade calls that re-accelerated within 60d) → upsert `calibration_snapshots`. Handles empty cohorts (value NULL + a note). Fully automated (doc 09 §3).
+4. **`memory/scoring.py`** — the human ritual's *assembler* (DR-09.2). `assemble_score_packet(session, brief_id)` gathers the brief + observables + since-publication metric history and, per **A-7**, **auto-evaluates each `source='system'` observable**: compares the `system_metric`'s actual movement since publication vs `direction_if_thesis_holds` → `on_track | counter | flat | too_early | unmeasurable` (`manual` observables → `operator_judgment`). `record_score(...)` writes the operator's verdict to `brief_scores` (materialized/falsifier + verdict/counter-flag/which-observable packed into `notes` JSON — no schema change).
+5. **CLI** — `seismo changes [--as-of]`, `seismo calibrate [--as-of]`. Added `changes` to `scripts/daily.sh` (cheap, $0, deterministic — safe to automate). Scoring stays UI-driven (it's a judgment ritual).
+6. **API** — `GET /changes/{day}` (grouped, fixed display order, `latest` alias), `GET /calibration` (per-metric series + latest), `GET /briefs/{entity_id}/score-packet` (the assembled + auto-evaluated scoring screen), `POST /briefs/{brief_id}/score` (bearer-gated, records the verdict). Models in `api/models.py`.
+7. **Dashboard** — nav gained **"Changes"**. `app/changes/[day]/page.tsx` = the Changes view (grouped deltas + a calibration strip + day switcher). `components/BriefScoring.tsx` = a client scoring panel on **published** briefs (renders the A-7 auto-eval + a materialized/falsifier/counter/verdict form → POST). `next build` green — **7 routes**.
+
+### 21.2 Verified
+- **Unit:** `test_memory.py` (9) — changes transitions/promotions/rerunnable/survival, breakout-survival ratio + empty-cohort, system-observable auto-eval (on_track vs counter vs too_early), `record_score` upsert + bad-value reject. `test_api.py` +1 (changes/calibration/score-packet/score round-trip). `mypy src` clean (48 files), ruff clean.
+- **Live:** `seismo calibrate` → correctly `n=0` with the "need ≥90d" note (the instrument works; it just needs time). `seismo changes` → **231 new-survived · 487 promotions · 1 draft** written to `changes_daily` for 2026-07-11 (the 487 promotions are the §19.3 cold-start ladder artifact). The Changes view now has real content.
+
+### 21.3 Gotchas / learnings (don't relearn)
+- **`clean_db` must clear `changes_daily` + `calibration_snapshots`** — they're now in conftest `_CLEAR_TABLES`. Two tests failed first because a **live** `seismo calibrate`/`changes` smoke run had committed rows into the shared dev DB, and `/calibration` returns the *latest* snapshot across all days → the test's older row wasn't "latest". Any test asserting on these tables needs `clean_db`.
+- **The calibration instruments read n=0 for ~90 days.** Breakout-survival needs breakout calls ≥90d old; fade-reaccel needs ≥60d forward history. Momentum only went live ~now, so these are structurally empty until the daily heartbeat accrues history — same "needs time, not code" situation as trajectory velocity. Don't mistake n=0 for a bug.
+- **Changes `new_entity` fires once, on day-7 exactly** (first-evidence date == day−7). A back-run for an arbitrary past day only shows entities that hit day-7 *that* day — correct, but means a first-ever `changes` run won't retro-populate every past day; run it daily going forward.
+- **Scoring auto-eval is advisory** (DR-09.2) — it never writes a score; `record_score` is always an explicit operator action. The `system_metric` on an observable must match an `entity_metrics_daily` metric name (`gh_stars`, `hf_downloads_30d`, …) for auto-eval to measure it; otherwise it's `unmeasurable`.
+- **`memory/scoring.py` reads metrics for the brief's own entity.** A ticker exposure's observable ("NVDA datacenter revenue") is NOT auto-measurable in v1 (no financials feed) — those stay `manual`. System observables are about the *entity's* pipeline metrics (downloads/stars), which is what A-7 can actually watch.
+
+### 21.4 The Changes view is deterministic — DR-09.1 upheld
+No third LLM checkpoint was added. Every Changes row is a fixed-template sentence over computed diffs. If a "weekly narrative" model is ever wanted it becomes a *registered fourth checkpoint* with its own contract, not an exception (the two-checkpoint invariant holds: comprehend + brief).
+
+### 21.5 NEXT (the brief-quality thread the user opened)
+The user's original question — are briefs good enough, add KPIs/scenarios? — is now un-blocked because the scoring loop exists to validate any enrichment. Recommended order:
+1. **Prove the quality ceiling:** regenerate a brief or two with `qwen2.5:7b-instruct` (or anthropic) — the entity-2857 brief was 3B-thin; the schema is likely fine, the model was the limit. Cheapest way to know what's actually missing.
+2. **Enrich the brief schema (if step 1 says so):** add `scenarios` (bull/base/bear *exposure* branches tied to observables) + baselined observables (`baseline`/`threshold`, prefer `source=system`). Both JSONB — no migration. **Hold the line on no $ figures** until the map is curated (placeholder financials). These are the investor features, done philosophy-safely.
+3. **H2 DeepSeek hindcast** (§20.5) — now that scoring exists, a hindcast brief can be forward-scored too.
+4. **Curate the map 8→30** with real 10-K figures — unlocks honest quantification later.
+5. **Quarterly calibration report** (doc 09 §4) — the one markdown artifact still unbuilt (brief-score distribution + momentum curves + map staleness). Small; do it once there's data to report.

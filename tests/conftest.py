@@ -28,6 +28,8 @@ _CLEAR_TABLES = [
     "gate_decisions",
     "brief_scores",
     "impact_briefs",
+    "changes_daily",
+    "calibration_snapshots",
     "entities",
     "raw_events",
 ]

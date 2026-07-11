@@ -5,6 +5,7 @@ import type { Brief, BriefExposure } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
 import { BriefActions } from "@/components/BriefActions";
+import { BriefScoring } from "@/components/BriefScoring";
 
 export const dynamic = "force-dynamic";
 
@@ -178,6 +179,18 @@ export default async function BriefPage({ params }: { params: { id: string } }) 
           <h2 className="text-sm font-semibold">Review</h2>
           <BriefActions briefId={brief.id} status={brief.status} />
         </section>
+
+        {/* forward scoring — only once published (doc 09 §2) */}
+        {brief.status === "published" && (
+          <section className="panel mt-5 p-5">
+            <h2 className="text-sm font-semibold">Forward scoring</h2>
+            <p className="mt-0.5 text-xs text-muted">
+              Revisit quarterly: did the exposure materialize, did a falsifier trip, was the
+              counter-mechanism the better story? System observables are auto-evaluated (A-7).
+            </p>
+            <BriefScoring entityId={brief.entity_id} />
+          </section>
+        )}
       </main>
     </>
   );

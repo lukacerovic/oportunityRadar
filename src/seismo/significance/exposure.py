@@ -52,7 +52,7 @@ SHARE_SUM_CEILING = 1.05  # doc 08 §1: revenue shares may sum slightly >1 (over
 # edge (e.g. claiming ``enablement`` when the only surface it touches is a substitution relation).
 RELATION_MECHANISMS: dict[str, frozenset[str]] = {
     # efficiency shrinks unit demand — driven by a cheaper substitute, an input-cost collapse, or
-    # the capability becoming a commodity (the DeepSeek-vs-GPU-demand surface is a demand_risk edge).
+    # the capability becoming a commodity (the DeepSeek-vs-GPU-demand surface is a demand_risk one).
     "demand_risk": frozenset({"substitution", "cost_collapse", "commoditization"}),
     "substitution_partial": frozenset({"substitution", "commoditization"}),
     "substitution_full": frozenset({"substitution", "commoditization"}),
@@ -192,17 +192,21 @@ class CategoryReach:
 def category_reach(session: Session, category: str | None) -> CategoryReach:
     """Assemble the map slices a given category touches (via ``reach_links``) plus the derived
     mechanism-legality set and per-ticker revenue-line index. Pure read; returns an empty reach when
-    the category is unmapped (the gate hard-excludes those before a brief is ever requested, A-6)."""
+    the category is unmapped (the gate hard-excludes those before a brief is requested, A-6)."""
     empty = CategoryReach(category or "", [], frozenset(), {})
     if not category:
         return empty
-    links = session.execute(
-        text(
-            "SELECT ticker, revenue_line, relation, core FROM reach_links WHERE category = :c "
-            "ORDER BY ticker, revenue_line"
-        ),
-        {"c": category},
-    ).mappings().all()
+    links = (
+        session.execute(
+            text(
+                "SELECT ticker, revenue_line, relation, core FROM reach_links WHERE category = :c "
+                "ORDER BY ticker, revenue_line"
+            ),
+            {"c": category},
+        )
+        .mappings()
+        .all()
+    )
     if not links:
         return empty
 

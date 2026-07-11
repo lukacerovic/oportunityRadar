@@ -657,7 +657,9 @@ def brief_decision(
 
     if decision == "publish":
         session.execute(
-            text("UPDATE impact_briefs SET status = 'published', reviewed_at = now() WHERE id = :id"),
+            text(
+                "UPDATE impact_briefs SET status = 'published', reviewed_at = now() WHERE id = :id"
+            ),
             {"id": brief_id},
         )
         return m.BriefDecisionResult(id=brief_id, status="published")
@@ -678,6 +680,196 @@ def _dumps(value: dict[str, Any]) -> str:
     import json
 
     return json.dumps(value)
+
+
+# --- memory & synthesis (doc 09) --------------------------------------------
+
+# Fixed display order for the Changes view groups (doc 09 §1) — most consequential first.
+_CHANGE_ORDER = [
+    "gate_week",
+    "brief_published",
+    "brief_drafted",
+    "state_up",
+    "state_down",
+    "promotion",
+    "new_entity",
+]
+
+
+@app.get("/changes/{day}", response_model=m.ChangesResponse)
+def changes(day: str, session: Session = Depends(get_session)) -> m.ChangesResponse:
+    """One day's deterministic Changes view (doc 09 §1). ``day`` is an ISO date or ``latest`` (the
+    most recent day that has computed changes)."""
+    if day in ("latest", "current"):
+        resolved = session.execute(text("SELECT MAX(day) FROM changes_daily")).scalar()
+        target = resolved or datetime.now(UTC).date()
+    else:
+        try:
+            target = date.fromisoformat(day)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"bad day {day!r}") from exc
+
+    rows = (
+        session.execute(
+            text(
+                "SELECT kind, entity_id, text, payload FROM changes_daily "
+                "WHERE day = :d ORDER BY id"
+            ),
+            {"d": target},
+        )
+        .mappings()
+        .all()
+    )
+    groups: dict[str, list[m.ChangeItem]] = {}
+    for r in rows:
+        groups.setdefault(r["kind"], []).append(
+            m.ChangeItem(
+                kind=r["kind"],
+                entity_id=r["entity_id"],
+                text=r["text"],
+                payload=r["payload"] or {},
+            )
+        )
+    ordered = {k: groups[k] for k in _CHANGE_ORDER if k in groups}
+    for k, v in groups.items():  # any kinds not in the fixed order, appended stably
+        if k not in ordered:
+            ordered[k] = v
+
+    days = [
+        d.isoformat()
+        for d in session.execute(
+            text("SELECT DISTINCT day FROM changes_daily ORDER BY day DESC LIMIT 30")
+        ).scalars()
+    ]
+    return m.ChangesResponse(day=target, groups=ordered, total=len(rows), available_days=days)
+
+
+@app.get("/calibration", response_model=m.CalibrationResponse)
+def calibration(session: Session = Depends(get_session)) -> m.CalibrationResponse:
+    """The momentum-call calibration track record (doc 09 §3), per metric over time."""
+    rows = (
+        session.execute(
+            text(
+                "SELECT day, metric, value, sample_n FROM calibration_snapshots "
+                "ORDER BY metric, day"
+            )
+        )
+        .mappings()
+        .all()
+    )
+    series: dict[str, list[m.CalibrationPoint]] = {}
+    for r in rows:
+        series.setdefault(r["metric"], []).append(
+            m.CalibrationPoint(day=r["day"], value=_f(r["value"]), sample_n=r["sample_n"])
+        )
+    latest = {metric: pts[-1] for metric, pts in series.items() if pts}
+    return m.CalibrationResponse(series=series, latest=latest)
+
+
+@app.get("/briefs/{entity_id}/score-packet", response_model=m.ScorePacketResponse)
+def score_packet(
+    entity_id: int,
+    session: Session = Depends(get_session),
+    version: int | None = Query(None),
+) -> m.ScorePacketResponse:
+    """Assemble the quarterly scoring screen for an entity's latest (or a specific) brief version,
+    with its system observables auto-evaluated (A-7, doc 09 §2)."""
+    from seismo.memory.scoring import assemble_score_packet
+
+    row = session.execute(
+        text(
+            "SELECT id FROM impact_briefs WHERE entity_id = :e "
+            + ("AND version = :v " if version is not None else "")
+            + "ORDER BY version DESC LIMIT 1"
+        ),
+        {"e": entity_id, **({"v": version} if version is not None else {})},
+    ).scalar()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no brief for this entity")
+
+    p = assemble_score_packet(session, int(row))
+    existing = None
+    if p.existing_score is not None:
+        notes = _loads(p.existing_score.get("notes"))
+        existing = m.ExistingScore(
+            materialized=p.existing_score.get("materialized"),
+            falsifier_tripped=p.existing_score.get("falsifier_tripped"),
+            verdict=notes.get("verdict"),
+            counter_was_better=notes.get("counter_was_better"),
+            falsifier_observable=notes.get("falsifier_observable"),
+        )
+    return m.ScorePacketResponse(
+        brief_id=p.brief_id,
+        entity_id=p.entity_id,
+        entity_name=p.entity_name,
+        version=p.version,
+        published_at=p.published_at,
+        horizon=p.horizon,
+        days_elapsed=p.days_elapsed,
+        summary=p.summary,
+        counter_mechanism=p.counter_mechanism,
+        exposures=[m.BriefExposure(**e) for e in p.exposures],
+        observable_evals=[
+            m.ObservableEvalModel(
+                statement=ev.statement,
+                source=ev.source,
+                system_metric=ev.system_metric,
+                direction_if_thesis_holds=ev.direction_if_thesis_holds,
+                status=ev.status,
+                detail=ev.detail,
+            )
+            for ev in p.observable_evals
+        ],
+        metric_history={k: [list(t) for t in v] for k, v in p.metric_history.items()},
+        auto_summary=p.auto_summary,
+        existing_score=existing,
+    )
+
+
+@app.post(
+    "/briefs/{brief_id}/score",
+    response_model=m.ScoreResult,
+    dependencies=[Depends(require_token)],
+)
+def score_brief(
+    brief_id: int,
+    materialized: str = Query(..., pattern="^(yes|partial|no|too_early)$"),
+    falsifier_tripped: bool = Query(False),
+    falsifier_observable: str | None = Query(None),
+    verdict: str | None = Query(None),
+    counter_was_better: bool = Query(False),
+    session: Session = Depends(get_session),
+) -> m.ScoreResult:
+    """Record the operator's quarterly forward-score for a brief (DR-09.2 — the human ritual)."""
+    from seismo.memory.scoring import record_score
+
+    try:
+        record_score(
+            session,
+            brief_id,
+            materialized=materialized,
+            falsifier_tripped=falsifier_tripped,
+            falsifier_observable=falsifier_observable,
+            verdict=verdict,
+            counter_was_better=counter_was_better,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return m.ScoreResult(brief_id=brief_id, materialized=materialized)
+
+
+def _loads(value: Any) -> dict[str, Any]:
+    import json
+
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        loaded = json.loads(value)
+    except (ValueError, TypeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 # --- search (A-10) ----------------------------------------------------------

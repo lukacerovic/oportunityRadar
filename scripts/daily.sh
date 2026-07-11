@@ -2,7 +2,7 @@
 # scripts/daily.sh — Seismograph daily heartbeat.
 #
 # Runs the full daily monitoring cycle in the correct order (HANDOFF §8):
-#   collect (find new) → track (measure known) → resolve (fold in) → snapshot → score → comprehend
+#   collect (find new) → track (measure known) → resolve (fold in) → snapshot → score → comprehend → changes
 #
 # Run this ONCE a day. The critical step is `track`: it records today's star/fork counts for known
 # repos, and momentum = how those change over ~7 days. Miss days ⇒ gaps ⇒ momentum never builds.
@@ -54,6 +54,8 @@ run "score"    uv run seismo score
 if [ "${SKIP_COMPREHEND:-0}" != "1" ]; then
   run "comprehend" uv run seismo comprehend
 fi
+# Stage 8 (doc 09): deterministic Changes view — cheap ($0, no LLM), records today's deltas.
+run "changes"  uv run seismo changes
 
 echo "" | tee -a "$LOG"
 echo "########## done — $(date '+%H:%M:%S') ##########" | tee -a "$LOG"

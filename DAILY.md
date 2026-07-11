@@ -36,6 +36,7 @@ The script runs these in order (HANDOFF §8). You can also run any of them by ha
 | 4. Snapshot | `seismo snapshot` | Rebuilds the daily metrics table from the raw measurements | Feeds momentum |
 | 5. Score | `seismo score` | Recomputes momentum states (dormant → simmering → … → breakout) | The living picture |
 | 6. Comprehend | `seismo comprehend` | Writes AI cards for entities that just became worth it | Cheap (local, $0); self-limits via triggers |
+| 7. Changes | `seismo changes` | Records today's deterministic deltas (state moves, promotions, briefs) → the **Changes** view | Cheap ($0, no LLM); the daily "what moved" |
 
 **Why `track` is capped at 1,500:** there are ~9,000 known repos but GitHub's free tier allows
 5,000 API calls/hour and each poll is ~2s. So we track a **consistent id-ordered slice** (your seed

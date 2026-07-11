@@ -1,11 +1,14 @@
 import type {
   Brief,
   BriefListItem,
+  CalibrationResponse,
+  ChangesResponse,
   EntityDossier,
   GateWeekResponse,
   HealthResponse,
   QueueItem,
   RadarResponse,
+  ScorePacketResponse,
 } from "./types";
 
 const BASE = process.env.SEISMO_API_BASE ?? "http://127.0.0.1:8000";
@@ -55,6 +58,18 @@ export function getBriefs(status?: string): Promise<BriefListItem[]> {
 
 export function getBrief(entityId: number): Promise<Brief> {
   return get<Brief>(`/briefs/${entityId}`, 60);
+}
+
+export function getChanges(day: string): Promise<ChangesResponse> {
+  return get<ChangesResponse>(`/changes/${encodeURIComponent(day)}`, 120);
+}
+
+export function getCalibration(): Promise<CalibrationResponse> {
+  return get<CalibrationResponse>(`/calibration`, 300);
+}
+
+export function getScorePacket(entityId: number): Promise<ScorePacketResponse> {
+  return get<ScorePacketResponse>(`/briefs/${entityId}/score-packet`, 30);
 }
 
 export const API_BASE = BASE;

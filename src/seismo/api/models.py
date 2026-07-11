@@ -248,3 +248,77 @@ class BriefListItem(BaseModel):
 class BriefDecisionResult(BaseModel):
     id: int
     status: str
+
+
+# --- memory & synthesis (doc 09) --------------------------------------------
+
+
+class ChangeItem(BaseModel):
+    kind: str
+    entity_id: int | None
+    text: str
+    payload: dict[str, Any] = {}
+
+
+class ChangesResponse(BaseModel):
+    """One day's deterministic Changes view (doc 09 §1), grouped by kind for rendering."""
+
+    day: date
+    groups: dict[str, list[ChangeItem]]  # kind → items, in a fixed display order
+    total: int
+    available_days: list[str]  # ISO dates that have changes, newest first
+
+
+class CalibrationPoint(BaseModel):
+    day: date
+    value: float | None
+    sample_n: int
+
+
+class CalibrationResponse(BaseModel):
+    """The momentum-call calibration track record (doc 09 §3), per metric over time."""
+
+    series: dict[str, list[CalibrationPoint]]  # metric → points oldest→newest
+    latest: dict[str, CalibrationPoint]
+
+
+class ObservableEvalModel(BaseModel):
+    statement: str
+    source: str
+    system_metric: str | None
+    direction_if_thesis_holds: str
+    status: str  # on_track | counter | flat | too_early | unmeasurable | operator_judgment
+    detail: str
+
+
+class ExistingScore(BaseModel):
+    materialized: str | None = None
+    falsifier_tripped: bool | None = None
+    verdict: str | None = None
+    counter_was_better: bool | None = None
+    falsifier_observable: str | None = None
+
+
+class ScorePacketResponse(BaseModel):
+    """The quarterly scoring screen for one brief (doc 09 §2): the brief + its observables auto-
+    evaluated (A-7) + since-publication metric history, ready for the operator's verdict."""
+
+    brief_id: int
+    entity_id: int
+    entity_name: str
+    version: int
+    published_at: datetime | None
+    horizon: str | None
+    days_elapsed: int
+    summary: str | None
+    counter_mechanism: str | None
+    exposures: list[BriefExposure]
+    observable_evals: list[ObservableEvalModel]
+    metric_history: dict[str, list[list[Any]]]  # metric → [[day_iso, value], …]
+    auto_summary: str
+    existing_score: ExistingScore | None
+
+
+class ScoreResult(BaseModel):
+    brief_id: int
+    materialized: str
