@@ -540,3 +540,39 @@ The machinery is done and proven; grading the cases on **real history** is the r
 2. **Reflection-70B:** needs the **HN (Algolia-historical) + HF** loaders to inject the Sept-2024 attention spike; then `seismo hindcast --case reflection70b` should be green (suppressed + brief-free) with no `--reload` firehose (HN/HF are light).
 3. **Mid-size positive case** (doc 11 §3, still unselected): a dev tool that climbed the full ladder over ~2 quarters with a clean GH Archive trail + a PyPI/npm presence (tests R3 + distribution promotion) + a pricing-page appearance (tests commercialization). Author `hindcast/cases/<pick>.yaml` once its loaders exist.
 4. Wire the hindcast assertions into the quarterly calibration report (doc 11 §5) as the permanent regression floor.
+
+---
+
+## 24. SESSION LOG (2026-07-11, cont.) — dashboard info-modals + HN/arXiv hindcast loaders
+
+Two ships after Stage 9, plus a scoping correction on the loaders. **This is the context-clear handoff: read §22.4, §23, and this section to resume.**
+
+### 24.1 What shipped (commits)
+- **`287922f` — dashboard per-page info (ⓘ) modals.** A reusable `InfoButton` + modal (`dashboard/components/InfoModal.tsx`) driven by a central content registry (`dashboard/lib/help.ts`), wired into all 7 pages (Radar, Entity, Changes, Gate, Brief inbox, Brief detail, Queue). Each modal explains every value on the page in plain terms + a "How to read it" analysis block (e.g. "read the counter-mechanism before the thesis — if it's weak, distrust the brief"). Esc/backdrop/button close; `next build` green. Pure UI, no backend touch.
+- **`3c230aa` — HN + arXiv hindcast loaders.** Two of the three validation loaders, both cheap. New `src/seismo/hindcast/loaders.py` (`load_hn`, `load_arxiv`); `ArxivCollector.fetch_ids` added; wired into `runner.default_loader`; loaded rows stamped `origin='backfill'`. +5 tests, ruff/mypy clean.
+
+### 24.2 The loader scoping correction (important — supersedes §23.5's loader list)
+Reading the collectors settled which "loaders" actually need building:
+- **Hacker News needs NO new loader.** `collectors/hn.py::discover(window)` already queries the Algolia API by `created_at_i` range — its own docstring calls it "the hindcast workhorse." `load_hn` just points that existing collector at the case window. This is the attention signal Reflection-70B rides on.
+- **arXiv needed only a targeted fetch, not a full loader.** `discover` pages from the *newest* submissions and can't reach an arbitrary past window — but a case pins exact paper ids, so `ArxivCollector.fetch_ids(id_list)` jumps straight to them. `load_arxiv` uses it for the case's seed papers (DeepSeek's `2405.04434` for the H1a identity check).
+- **Hugging Face is the only genuine remaining loader** — no HF collector exists at all yet.
+
+**Loader status now:** GitHub ✅ (GH Archive, HEAVY) · Hacker News ✅ (already historical, wired) · arXiv ✅ (targeted seed fetch) · **Hugging Face ❌ (the one real remaining build)** · Wayback ❌ · PyPI ❌ (last two deferred — not needed for the two v1 cases).
+
+### 24.3 NEXT — build the Hugging Face collector (the last loader before real validation)
+Agreed plan (deployment deferred to the very end):
+1. **HF collector — `collectors/hf.py` (DO THIS NEXT).** The only piece blocking validation, and "two birds": historical `createdAt` (identity + the `usable_artifact` maturity promotion) **and** live `downloads` tracking (a currently-missing evidence type — the `hf_downloads_30d` metric spec already exists in `trajectory/metrics.py`, waiting for this collector). Build `discover`/fetch-by-org via the HF API (`huggingface.co/api/models?author=<org>` → `createdAt`, `downloads`), a `track` for downloads, register it in `collectors/registry.py`, and add `load_hf(session, orgs, window)` to `hindcast/loaders.py`. Mirror the existing collector pattern (MockTransport tests in `test_collectors.py`). This unblocks DeepSeek's `hf:` identity ref AND the entire Reflection-70B entity (`hf:mattshumer/Reflection-Llama-3.1-70B`).
+2. **Run the real validation** (the payoff — see §23.5): DeepSeek (`--reload` = HEAVY GH firehose, run once; H2 3/3 with `SEISMO_MODEL_HINDCAST` pinned to 7B/anthropic) + Reflection-70B (light — HN+HF only, no firehose). Then pick/author the mid-size third case.
+3. **Exposure map data** — curate 8 → 30 companies with real 10-K figures.
+4. **PyPI download tracking** (5th evidence type) — after HF.
+5. **Run daily for weeks-to-a-quarter** so momentum stops being all-dormant and calibration reads > n=0. Time, not code.
+6. **Deployment (Stage 10)** — LAST, by user's instruction.
+
+### 24.4 Conceptual notes the user now shares (so the framing is consistent next session)
+- **DeepSeek + Reflection-70B are TESTS, not training data.** The system does not learn from them — its logic (deterministic momentum math + a general-purpose LLM's world knowledge) is fixed. The cases are regression/acceptance tests: one real "should-catch" (DeepSeek's mid-2024 cost-collapse foreshock → NVDA-down/cloud-up thesis) and one real "must-ignore" (Reflection-70B's Sept-2024 hype that collapsed in days). They prove the machine is wired right; generalization comes from the design, not the examples. This is deliberately NOT an ML-trained architecture — the whole point is explainability/auditability (rules you can inspect + an LLM that cites evidence).
+
+### 24.5 Standing gotchas (still true — don't relearn)
+- **Full `pytest -q` TIMES OUT (>10 min) — environmental, not a regression.** `momentum_states` has ~733k rows from Stage-8 live runs, so every `clean_db` DELETE costs ~9–11s. New evaluator/format/loader tests use the fast rollback-only `db_session` fixture and pass in <0.5s; only the 2 runner tests need `clean_db`. Verify affected files individually; the fix for green CI is a dedicated/trimmed test DB, not the tests.
+- **`db_session` tests share the live dev DB** (rollback-only), so any seed data must use collision-proof synthetic ids (e.g. arXiv `0000.00001`, category `ztest-category`/`ZTST`) — the real `2405.04434` already lives in the DB and would make a dupe-insert test read the pre-existing row.
+- **`.env` sets `SEISMO_LLM_PROVIDER=ollama`** → `test_config.py::test_defaults_are_dev_safe` fails (pre-existing, documented); and any end-to-end LLM test must force `mock` or it hits the local model.
+- **`explain.txt`** at repo root is the user's scratch file — not committed, leave it.
