@@ -156,6 +156,18 @@ def backfill_stars(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind host."),
+    port: int = typer.Option(8000, help="Bind port."),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload (dev)."),
+) -> None:
+    """Layer 6 — run the read + curation API for the dashboard (doc 10). Behind Caddy in prod."""
+    import uvicorn
+
+    uvicorn.run("seismo.api.app:app", host=host, port=port, reload=reload)
+
+
+@app.command()
 def resolve(cold_start: bool = typer.Option(False, "--cold-start")) -> None:
     """Layer 2 — entity resolution + merge queue (doc 04).
 

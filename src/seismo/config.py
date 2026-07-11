@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     model_hindcast: str = ""  # pinned snapshot id for the H2 assertion (doc 13 A-8)
     anthropic_api_key: str = ""
 
+    # --- API + dashboard (doc 10 DR-10.2) ---
+    api_token: str = ""  # static bearer for curation (non-GET) endpoints; empty = open (dev only)
+    dashboard_origin: str = "http://localhost:3000"  # CORS allow-origin for the Next.js dev server
+
     # --- source credentials (optional until their collector lands) ---
     github_token: str = ""
     reddit_client_id: str = ""
