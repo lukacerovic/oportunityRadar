@@ -91,6 +91,27 @@ def test_github_track_skips_deleted_repos() -> None:
     assert drafts[0].payload["stars"] == 50
 
 
+def test_github_track_skips_transient_network_errors() -> None:
+    """A mid-batch disconnect must skip that target, not lose the whole run's snapshots."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "flaky/repo" in str(request.url):
+            raise httpx.RemoteProtocolError("server disconnected")
+        return httpx.Response(
+            200,
+            json={"id": 9, "full_name": "live/repo", "stargazers_count": 12, "forks_count": 1},
+        )
+
+    targets = [
+        TrackTarget(entity_id=1, source="github", native_id="flaky/repo"),
+        TrackTarget(entity_id=2, source="github", native_id="live/repo"),
+    ]
+    drafts = GitHubCollector(client=_client(handler), min_interval_s=0, token="x").track(
+        targets, WINDOW
+    )
+    assert len(drafts) == 1 and drafts[0].payload["stars"] == 12
+
+
 # --- arXiv parsing ----------------------------------------------------------
 
 _ATOM_FEED = """<?xml version="1.0" encoding="UTF-8"?>

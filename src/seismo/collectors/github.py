@@ -76,12 +76,17 @@ class GitHubCollector:
         drafts: list[RawEventDraft] = []
         for target in targets:
             self._limiter.wait()
-            resp = self._client.get(
-                REPO_URL.format(full_name=target.native_id), headers=self._headers()
-            )
-            # A repo that is deleted/renamed/made-private is expected attrition — skip it so one
-            # dead target never aborts the whole batch. Systemic errors (403 rate-limit, 5xx) still
-            # raise and fail the run, so we don't silently lose every snapshot.
+            try:
+                resp = self._client.get(
+                    REPO_URL.format(full_name=target.native_id), headers=self._headers()
+                )
+            except httpx.TransportError:
+                # A transient network blip (disconnect, read timeout) mid-batch must not lose the
+                # ~1000 snapshots already gathered — skip this one target and keep going. A real
+                # outage skips them all, leaving events_new=0 for monitoring to catch.
+                continue
+            # A repo that is deleted/renamed/made-private is expected attrition — skip it too.
+            # Systemic HTTP errors (403 rate-limit, 5xx) still raise and fail the run.
             if resp.status_code in (404, 451):
                 continue
             resp.raise_for_status()
