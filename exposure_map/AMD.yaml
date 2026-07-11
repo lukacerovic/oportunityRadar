@@ -1,0 +1,46 @@
+# exposure_map/AMD.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: AMD
+name: Advanced Micro Devices, Inc.
+cik: "0000002488"
+sector: semiconductors
+revenue_lines:
+  - id: datacenter
+    name: Data Center
+    share_of_revenue: 0.50
+    source: "first-pass approximate (Data Center segment rising ~half of revenue); verify vs 10-K"
+    depends_on: [ai-accelerator-demand, inference-demand]
+    threat_surface:
+      - category: model-efficiency
+        relation: demand_risk
+      - category: inference-runtime
+        relation: substitution_partial   # MI-series positioned as an inference alternative
+      - category: ml-compiler
+        relation: dependency_risk         # ROCm maturity gates adoption vs CUDA
+  - id: client
+    name: Client (PC CPUs)
+    share_of_revenue: 0.25
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: [pc-demand]
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement              # NPUs/local inference lift the AI-PC cycle
+  - id: gaming
+    name: Gaming
+    share_of_revenue: 0.12
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: []
+    threat_surface: []
+  - id: embedded
+    name: Embedded
+    share_of_revenue: 0.13
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: []
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement
+moat_notes: >
+  Chiplet architecture and cost/perf; open ROCm software stack still maturing versus CUDA.
+sensitivity_notes: >
+  Upside if inference demand diversifies away from a single vendor; downside if the software
+  moat gap keeps AI training spend concentrated elsewhere.
+updated: 2026-07-01

@@ -1,0 +1,32 @@
+# exposure_map/AVGO.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: AVGO
+name: Broadcom Inc.
+cik: "0001730168"
+sector: semiconductors
+revenue_lines:
+  - id: semiconductor_solutions
+    name: Semiconductor Solutions
+    share_of_revenue: 0.58
+    source: "first-pass approximate (post-VMware mix ~semis vs software); verify vs 10-K segment note"
+    depends_on: [ai-networking-demand, custom-accelerator-demand]
+    threat_surface:
+      - category: distributed-systems
+        relation: enablement              # AI cluster networking (Ethernet/AI fabrics) grows demand
+      - category: model-efficiency
+        relation: demand_risk             # fewer accelerators per capability => less custom silicon
+  - id: infrastructure_software
+    name: Infrastructure Software
+    share_of_revenue: 0.42
+    source: "first-pass approximate (VMware + software); verify vs 10-K segment note"
+    depends_on: [enterprise-virtualization]
+    threat_surface:
+      - category: observability
+        relation: substitution_partial
+      - category: workflow-orchestration
+        relation: margin_pressure
+moat_notes: >
+  Custom-silicon (ASIC) design partnerships with hyperscalers; VMware install base.
+sensitivity_notes: >
+  Positive exposure to AI networking; watch hyperscaler in-housing and any efficiency shift
+  that reduces accelerator counts.
+updated: 2026-07-01

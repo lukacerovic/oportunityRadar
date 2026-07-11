@@ -1,0 +1,46 @@
+# exposure_map/MSFT.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: MSFT
+name: Microsoft Corporation
+cik: "0000789019"
+sector: software-infrastructure
+revenue_lines:
+  - id: intelligent_cloud
+    name: Intelligent Cloud (Azure + server products)
+    share_of_revenue: 0.44
+    source: "first-pass approximate; verify vs 10-K segment note (Intelligent Cloud)"
+    depends_on: [azure-ai-demand, openai-partnership]
+    threat_surface:
+      - category: inference-runtime
+        relation: enablement              # more inference on Azure grows consumption
+      - category: model-foundation
+        relation: dependency_risk         # Azure AI leans on the OpenAI model dependency
+      - category: agent-framework
+        relation: enablement
+      - category: llm-gateway
+        relation: substitution_partial    # 3rd-party routers disintermediate Azure AI endpoints
+  - id: productivity_business
+    name: Productivity & Business Processes (M365, Copilot)
+    share_of_revenue: 0.32
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: [seat-based-saas, copilot-attach]
+    threat_surface:
+      - category: code-assistant
+        relation: substitution_partial    # GitHub Copilot revenue contested by rival coding agents
+        core: true
+      - category: agent-framework
+        relation: substitution_partial
+  - id: personal_computing
+    name: More Personal Computing (Windows, devices, search)
+    share_of_revenue: 0.24
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: [windows-oem, search-advertising]
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement
+      - category: rag-framework
+        relation: demand_risk             # AI answers pressure Bing/search query economics
+moat_notes: >
+  Enterprise distribution, identity (Entra), and the OpenAI partnership; deep M365 install base.
+sensitivity_notes: >
+  Net beneficiary of AI cloud demand; watch Copilot attach/retention and model-dependency terms.
+updated: 2026-07-01

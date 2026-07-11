@@ -1,0 +1,35 @@
+# exposure_map/SNOW.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: SNOW
+name: Snowflake Inc.
+cik: "0001640147"
+sector: software-application
+revenue_lines:
+  - id: product_revenue
+    name: Product revenue (consumption)
+    share_of_revenue: 0.95
+    source: "first-pass approximate (product ~95% of revenue); verify vs 10-K"
+    depends_on: [data-consumption, ai-workload-attach]
+    threat_surface:
+      - category: data-pipeline
+        relation: substitution_partial    # rival lakehouse/ELT stacks contest the data platform
+        core: true
+      - category: vector-db
+        relation: substitution_partial     # embeddings/vector search may land outside Snowflake
+      - category: rag-framework
+        relation: enablement                # in-warehouse RAG grows consumption
+      - category: embedding-model
+        relation: enablement
+      - category: knowledge-graph
+        relation: substitution_partial
+  - id: professional_services
+    name: Professional services & other
+    share_of_revenue: 0.05
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Data gravity + governance; cross-cloud reach; consumption model aligned to workload growth.
+sensitivity_notes: >
+  AI is dual-edged: in-warehouse AI/RAG grows consumption, but vector/embeddings/RAG done
+  elsewhere leak workloads out. Watch net-revenue-retention and AI-feature attach.
+updated: 2026-07-01

@@ -51,7 +51,7 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 3 — Trajectory (snapshot + score engine; live H1 needs star history) | ✅ core | `3c46cc1` `dc581ec` |
 | 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | `95f1738` |
 | 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | `b005474` `6074159` |
-| 6 — Significance (needs exposure-map slice first, A-1) | ⬜ | — |
+| 6 — Significance — A-1 exposure map ✅ (loader + 8-co slice + reach_links); gate engine next | 🚧 | `45bc898`→ |
 | 7 — Impact | ⬜ | — |
 | 8 — Memory & scoring | ⬜ | — |
 | 9 — Hindcast completion | ⬜ | — |
@@ -91,10 +91,13 @@ src/seismo/
 dashboard/           Next.js 14 app (App Router, Tailwind, Meridian palette) ← Stage 5 UI; node_modules git-ignored
   identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
   trajectory/        metrics.py cohorts.py velocity.py ladder.py states.py score.py  ← Stage 3
-  significance/ memory/ hindcast/   empty (their stages)
+  significance/      exposure.py  ← Stage 6 A-1: exposure-map YAML schema + load_map + reach_links derivation
+  memory/ hindcast/   empty (their stages)
 alembic/versions/0001_core_schema.py    schema source of truth
 alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
 alembic/versions/0003_card_status.py         comprehension_cards.status + pack_version (A-12)
+alembic/versions/0004_reach_link_core.py     reach_links.core flag for the gate's R=1.0 rule (A-1)
+exposure_map/*.yaml                          8-company slice (NVDA MSFT GOOGL AMZN META AMD AVGO SNOW)
 seed/categories.yaml themes.yaml seed_entities.yaml   vocab + day-1 universe
 tests/               test_asof/config/invariants/collectors/graph_purity/trajectory/comprehension/targets/api + conftest (db_session, clean_db)
 deploy/systemd/      seismo-collect-fast.{service,timer} + seismo-track.{service,timer} + README.md
@@ -283,3 +286,25 @@ scope with `--limit` (5000 GitHub calls/hr). Original planning notes below, kept
 **Verify the fix like this (before/after):** print the pack (`build_evidence_pack(s, <id>, now)` — see §14 gotcha) — it should jump from ~880 chars to ~4k with real README content; then the regenerated card should be several sentences of substance rather than a rephrased tagline.
 
 **Watch-outs:** README fetch is 1 API call/repo (rate-limited, 5000/hr authenticated) — don't blast all 9k at once; scope with `--limit`/active-tier. `repo_readme` events get historical-or-now `occurred_at` (use `now` — it's an enrichment, not a discovery); this doesn't affect as-of momentum since README text isn't a metric. Keep `anthropic`/`ollama` out of the collector (invariant 3 is about SDK imports; the collector uses `httpx` — fine).
+
+---
+
+## 17. Stage 6 — Significance (IN PROGRESS)
+
+**A-1 exposure map — DONE this session.** The gate's prerequisite (doc 07 §5, doc 14 §6) is built:
+- `src/seismo/significance/exposure.py` — Pydantic schema (`ExposureCompanyDoc` → `RevenueLine` → `ThreatSurface`) + `load_map()` + `derive_reach_links()`. Validates: revenue shares sum ≤1.05, every `threat_surface.category` in the vocab, every line has a `source`, controlled `relation` set. `reach_links` are **authoritatively rebuilt** per company on every load (drop-then-derive), so YAML is the sole truth.
+- **Migration 0004** adds `reach_links.core` (the gate's R=1.0 "any core line" rule reads it directly).
+- **`exposure_map/*.yaml`** — the minimal **8-company slice**: NVDA MSFT GOOGL AMZN META AMD AVGO SNOW. Loaded: 8 companies, 25 revenue lines, **47 reach_links, 18 categories covered** (target was top-10). Core threats flagged: NVDA/model-efficiency, GOOGL/rag-framework, MSFT/code-assistant, SNOW/data-pipeline, META/multimodal-model.
+- **`seismo load-map [--path --strict]`** CLI; `tests/test_exposure.py` (9 tests: schema validation, core OR-ing, authoritative rebuild, all 8 real files valid, idempotent load).
+- ⚠️ **The revenue-share NUMBERS are first-pass approximations** flagged in each line's `source` — the *engineering* is exact; the *figures* need verification against 10-K segment notes in the quarterly refresh (doc 08 §5). This is operator curation, not code.
+
+**Run it:** `uv run alembic upgrade head` (applies 0004) → `uv run seismo load-map`.
+
+**NEXT — the gate engine** (`src/seismo/significance/gate.py`, doc 07):
+1. **Candidate set** (doc 07 §1): entities `accelerating`/`breakout` during the week, minus published-brief-<60d, minus **provisional** qualifying states (doc 14 §5 — read `momentum_states.inputs.provisional`).
+2. **Components:** **M** from peak state (breakout=1.0, accelerating=0.7) × velocity percentile `inputs.P`; **R** from `reach_links` matched on the entity's `category_asof` — **R=0 is a hard exclusion** (A-6) → `decision='suppressed'`, `reason='unmapped_reach'`, aggregated into **map-gaps**; among eligible R∈{0.5 (≥1 line), 1.0 (≥3 lines or any `core`)}; **N** = first-3-in-(category,age<180d)-cohort→1.0, cohort<10→0.6, else 0.3.
+3. **Score = M × (0.4 + 0.6·R) × (0.4 + 0.6·N)** over the eligible set only. Top-K (`briefs_per_week`=5) pass. **Every** candidate (passed/suppressed) gets a `gate_decisions` row with the component breakdown (table exists: entity_id, week, decision, score, components JSONB).
+4. **`seismo gate --week`** wired (currently a stub in cli.py); tests incl. edge cohorts + **H3** (Reflection-70B-style flop: high M, thin R → suppressed). Add config weights if tuning is needed (defaults inline).
+5. Then Stage 7 dashboard: `/gate/[week]` page (passed + suppressed lists), then the impact brief (LLM checkpoint 2, doc 08 §2 — new contract in `checkpoints/contracts.py`).
+
+**Gotchas:** (a) the gate is deterministic — **no LLM** (DR-07.1); the model only writes the brief *after* the gate. (b) `R=0` excludes *before* scoring, not a floor (A-6). (c) provisional/cold-start entities never earn a brief (doc 14 §5) even if `accelerating`. (d) with everything currently `dormant`, the live gate passes nobody until momentum accrues — test the gate on synthetic/hindcast momentum rows, not the current dev DB. (e) the exposure-map figures are placeholders — don't cite them as real financials.

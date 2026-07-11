@@ -1,0 +1,44 @@
+# exposure_map/NVDA.yaml — first-pass slice (doc 08 §1, doc 14 §6). VERIFY figures vs 10-K.
+ticker: NVDA
+name: NVIDIA Corporation
+cik: "0001045810"
+sector: semiconductors
+revenue_lines:
+  - id: datacenter
+    name: Data Center
+    share_of_revenue: 0.88
+    source: "first-pass approximate (FY2025 ~88% data center); verify vs 10-K segment note (doc 08 §5)"
+    depends_on: [frontier-training-demand, inference-demand, cuda-moat]
+    threat_surface:
+      - category: model-efficiency
+        relation: demand_risk        # cheaper training/inference => fewer GPUs per capability unit
+        core: true
+      - category: inference-runtime
+        relation: demand_risk
+      - category: ml-compiler
+        relation: dependency_risk     # portable kernels (Triton/MLIR) erode the CUDA moat
+      - category: distributed-systems
+        relation: enablement          # bigger clusters => more GPUs + NVLink attach
+  - id: gaming
+    name: Gaming
+    share_of_revenue: 0.09
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: [gpu-consumer-demand]
+    threat_surface:
+      - category: multimodal-model
+        relation: enablement          # on-GPU image/video generation grows demand
+  - id: proviz_auto
+    name: Professional Visualization + Automotive
+    share_of_revenue: 0.03
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: []
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement
+moat_notes: >
+  CUDA ecosystem lock-in; NVLink networking attach; supply relationships and
+  packaging (CoWoS) capacity.
+sensitivity_notes: >
+  Exposed to any credible collapse in training-compute-per-capability. Watch efficiency
+  results that replicate at scale, not just claim; and portable compiler stacks that weaken CUDA.
+updated: 2026-07-01

@@ -1,0 +1,51 @@
+# exposure_map/GOOGL.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: GOOGL
+name: Alphabet Inc.
+cik: "0001652044"
+sector: interactive-media
+revenue_lines:
+  - id: search_advertising
+    name: Google Search & other advertising
+    share_of_revenue: 0.57
+    source: "first-pass approximate; verify vs 10-K (Google Search & other)"
+    depends_on: [search-query-volume, ad-pricing]
+    threat_surface:
+      - category: rag-framework
+        relation: substitution_partial    # AI answer engines substitute classic search sessions
+        core: true
+      - category: agent-framework
+        relation: demand_risk             # agents that transact reduce ad-clicks
+      - category: multimodal-model
+        relation: substitution_partial
+  - id: google_cloud
+    name: Google Cloud
+    share_of_revenue: 0.12
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: [cloud-ai-demand]
+    threat_surface:
+      - category: inference-runtime
+        relation: enablement
+      - category: model-foundation
+        relation: dependency_risk         # Cloud AI tied to Gemini model competitiveness
+      - category: data-pipeline
+        relation: enablement
+  - id: youtube_ads
+    name: YouTube ads
+    share_of_revenue: 0.10
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: [video-ad-demand]
+    threat_surface:
+      - category: multimodal-model
+        relation: enablement
+  - id: subscriptions_devices_other
+    name: Subscriptions, platforms & devices
+    share_of_revenue: 0.21
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Search distribution + index; YouTube; TPU/custom silicon; global data footprint.
+sensitivity_notes: >
+  Central question is whether AI answers cannibalize high-margin search before Cloud/Gemini
+  monetization offsets it. Watch query-to-answer shift and ad-load per session.
+updated: 2026-07-01

@@ -1,0 +1,35 @@
+# exposure_map/META.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: META
+name: Meta Platforms, Inc.
+cik: "0001326801"
+sector: interactive-media
+revenue_lines:
+  - id: family_of_apps_ads
+    name: Family of Apps — advertising
+    share_of_revenue: 0.98
+    source: "first-pass approximate (advertising ~98% of revenue); verify vs 10-K"
+    depends_on: [ad-impressions, engagement, ad-ranking-ai]
+    threat_surface:
+      - category: multimodal-model
+        relation: enablement              # generative ad creative + ranking lift monetization
+        core: true
+      - category: agent-framework
+        relation: enablement
+      - category: model-foundation
+        relation: commoditization         # Llama-style open weights commoditize base models
+      - category: fine-tuning
+        relation: enablement
+  - id: reality_labs
+    name: Reality Labs
+    share_of_revenue: 0.02
+    source: "first-pass approximate; verify vs 10-K segment note"
+    depends_on: []
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement
+moat_notes: >
+  Social graph + engagement data; ad-ranking AI; open-weights (Llama) strategy to commoditize the model layer.
+sensitivity_notes: >
+  Net beneficiary of cheaper/better models (they lower content + ranking cost). Watch whether
+  open-weights strategy pressures rivals more than it dilutes Meta's own edge.
+updated: 2026-07-01

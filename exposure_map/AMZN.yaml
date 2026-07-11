@@ -1,0 +1,56 @@
+# exposure_map/AMZN.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: AMZN
+name: Amazon.com, Inc.
+cik: "0001018724"
+sector: internet-retail
+revenue_lines:
+  - id: aws
+    name: Amazon Web Services
+    share_of_revenue: 0.16
+    source: "first-pass approximate (~16% of revenue, majority of operating income); verify vs 10-K"
+    depends_on: [cloud-ai-demand, bedrock-adoption]
+    threat_surface:
+      - category: inference-runtime
+        relation: enablement
+      - category: model-foundation
+        relation: dependency_risk         # Bedrock's value tracks the models it can host
+      - category: vector-db
+        relation: enablement
+      - category: data-pipeline
+        relation: enablement
+      - category: agent-framework
+        relation: enablement
+  - id: online_stores
+    name: Online stores
+    share_of_revenue: 0.40
+    source: "first-pass approximate; verify vs 10-K disaggregated revenue"
+    depends_on: [retail-demand]
+    threat_surface: []
+  - id: third_party_seller
+    name: Third-party seller services
+    share_of_revenue: 0.24
+    source: "first-pass approximate; verify vs 10-K disaggregated revenue"
+    depends_on: [marketplace-gmv]
+    threat_surface:
+      - category: agent-framework
+        relation: demand_risk             # shopping agents reshape marketplace discovery/fees
+  - id: advertising
+    name: Advertising services
+    share_of_revenue: 0.09
+    source: "first-pass approximate; verify vs 10-K disaggregated revenue"
+    depends_on: [ad-demand]
+    threat_surface:
+      - category: multimodal-model
+        relation: enablement
+  - id: subscription_services
+    name: Subscription services
+    share_of_revenue: 0.07
+    source: "first-pass approximate; verify vs 10-K disaggregated revenue"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  AWS breadth + switching costs; fulfillment network; Prime flywheel; custom silicon (Trainium/Inferentia).
+sensitivity_notes: >
+  AWS is the AI-exposed engine; watch model-hosting economics and whether cheaper inference
+  expands or compresses cloud spend.
+updated: 2026-07-01

@@ -254,6 +254,9 @@ class ReachLink(Base):
     ticker: Mapped[str] = mapped_column(Text, primary_key=True)
     revenue_line: Mapped[str] = mapped_column(Text, primary_key=True)
     relation: Mapped[str] = mapped_column(Text, primary_key=True)
+    # doc 07 §2: a line flagged core makes any touching category R=1.0. Derived from the YAML
+    # threat_surface at load time (migration 0004); non-key so a relation change doesn't dupe rows.
+    core: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 
 # --- Bookkeeping ------------------------------------------------------------

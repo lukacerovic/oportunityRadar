@@ -275,6 +275,30 @@ def comprehend(
         )
 
 
+@app.command(name="load-map")
+def load_map_cmd(
+    path: str = typer.Option("exposure_map", help="Directory of company YAML files."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Exit non-zero if any file fails validation."
+    ),
+) -> None:
+    """Layer 6/A-1 — validate the exposure-map YAML and load companies + reach_links (doc 08 §1).
+
+    Idempotent + authoritative: each company's reach_links are rebuilt from its YAML on every load.
+    Unblocks the significance gate (doc 07); unmapped categories are expected (map-gaps)."""
+    from seismo.db import session_scope
+    from seismo.significance.exposure import load_map
+
+    with record_pipeline_run("load-map"):
+        with session_scope() as session:
+            stats = load_map(session, path)
+        typer.echo(f"[load-map] {stats.as_note()}")
+        for err in stats.errors:
+            typer.echo(typer.style(f"  ERROR {err}", fg=typer.colors.RED))
+    if strict and stats.errors:
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def gate(week: str = typer.Option(None, help="ISO week, e.g. 2026-W28.")) -> None:
     """Layer 5 — significance gate (doc 07)."""
