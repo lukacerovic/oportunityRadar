@@ -2,7 +2,7 @@
 
 *Single entry point for any new/compacted session. Read this first. `idea_documentation/technical/seismograph-13-corrections-and-decisions.md` is AUTHORITATIVE on any conflict with other docs. All design lives in `idea_documentation/`; all build state is in git.*
 
-**Last updated: Stage 3 Trajectory engine landed** — commits: `6946b15` (Stage 0), `24e4bef` (Stage 1), `a51b0d1` (migration 0002 + as-of graph), `5eba2d4` (resolution engine R1–R6), `35fc4f7` (seed universe), Stage 3 (this session), plus this handoff. **Next real milestone is the 180-day sweep — it needs `SEISMO_GITHUB_TOKEN` and unblocks live momentum + the DeepSeek H1 (see §15).**
+**Last updated: Stage 4 Comprehension engine landed** — Stages 0–4 done (Foundation, Observation, Identity, Trajectory, Comprehension) + cold-start tracking/sweep/backfill commands. Migrations 0001–0003. `SEISMO_GITHUB_TOKEN` set; LLM provider still `mock`. **Next: `ollama pull qwen2.5:7b-instruct` + `SEISMO_LLM_PROVIDER=ollama` to generate real cards (Stage 4 DoD), then Stage 5 Dashboard v0 (see §15).**
 **To resume:** "Read HANDOFF.md and continue the Seismograph build."
 
 ---
@@ -18,7 +18,7 @@ Daily monitoring + impact analysis over where technology is *built* (GitHub, arX
 
 1. **Observation** — collectors record raw, uninterpreted events. *(Stage 1 ✅)*
 2. **Identity** — resolve events to durable entities across registries (the hard problem).
-3. **Comprehension** — LLM checkpoint 1: entity → structured card + summary.
+3. **Comprehension** — LLM checkpoint 1: entity → structured card + summary. *(Stage 4 ✅ engine; mock/ollama/anthropic)*
 4. **Trajectory** — deterministic momentum states from velocity/promotions/breadth. *(Stage 3 ✅ engine; live signal awaits the sweep)*
 5. **Significance** — deterministic gate: which entities earn a brief under a fixed budget.
 6. **Impact** — LLM checkpoint 2: fill the impact-brief schema over the exposure map.
@@ -48,8 +48,8 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 1 — Observation | ✅ | `24e4bef` |
 | 2 — Identity (migration 0002, R1–R6, merges, queue, vocab) | ✅ core | `a51b0d1` `5eba2d4` `35fc4f7` |
 | **1.5 — Cold-start (seed done; sweep left, warm-up now built)** | 🟡 **IN PROGRESS** | `35fc4f7` |
-| 3 — Trajectory (snapshot + score engine; live H1 needs sweep) | ✅ core | _this session_ |
-| 4 — Comprehension (first LLM; needs key or ollama) | ⬜ | — |
+| 3 — Trajectory (snapshot + score engine; live H1 needs sweep) | ✅ core | _prior session_ |
+| 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | _this session_ |
 | 5 — Dashboard v0 | ⬜ | — |
 | 6 — Significance (needs exposure-map slice first, A-1) | ⬜ | — |
 | 7 — Impact | ⬜ | — |
@@ -62,6 +62,8 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 **Stage 2 (this session):** migration 0002 (as-of entity graph: `entity_merges`, `entity_category_history`, `entity_links.evidence_occurred_at`, `entity_themes.effective_at`, `entities.tracking_tier`). `canonical_entity_id(session,id,as_of)` + `category_asof()` recursive-CTE helpers in `db.py`. **Graph-purity test green** (future/inactive/transitive/category). Resolution engine (`identity/{normalize,anchors,vocab,resolve}.py`): attachment → R1–R3 auto-merge (reversible, both-endpoints-canonicalized) / R4–R5 queue / R6 audit link; deterministic category (30-slug YAML) + theme (15 YAML). `seismo resolve [--cold-start]`. **DeepSeek DoD proven in tests** (paper+github+hf → one entity via R1/R2). Live: 396 events → 392 entities, idempotent.
 **Stage 1.5 (this session):** `seed/seed_entities.yaml` (143 entities, every category) + `seismo seed-load` (idempotent, `origin='seed'`, load-date `occurred_at` so no hindcast pollution). `--cold-start` defers R4–R6 to `deferred_coldstart`. Live: dev DB now **535 entities**; second resolve is a clean no-op. **40 tests green.** (Do not `alembic downgrade` a DB with data — it drops `entity_category_history`; regenerate via `UPDATE entities SET category=NULL` + re-resolve.)
 **Stage 3 — Trajectory (this session):** full engine in `src/seismo/trajectory/{metrics,cohorts,velocity,ladder,states,score}.py`, no migration (tables exist from 0001). `seismo snapshot [--as-of]` rebuilds `entity_metrics_daily` from `*_snapshot`/story events — counters (`gh_stars/forks`, ff≤3d), levels (`hf_downloads_30d`/`pypi_downloads_7d`, never filled), rolling (`hn_points_7d`), derived `evidence_breadth`. `seismo score [--as-of]` runs maturity ladder → velocity 7-day-change → **cohort percentiles (as-of correct, Python-ranked over `canonical_entity_id`+`category_asof`+first-evidence age)** → momentum states with hysteresis (2-day promote / 7-day demote / fading) + **cold-start provisional cap at `simmering`** (doc 14 §5). Writes full replayed history `[first_seen..as_of]` per run (upsert). **54 tests green** incl. as-of-purity (score twice = identical, future events invisible) and a synthetic riser→breakout vs flat cohort. **Live H1 (DeepSeek reaches accelerating/breakout on backfill) is still BLOCKED on the 180-day sweep, which is blocked on `SEISMO_GITHUB_TOKEN`** — on the current dev DB every entity is `dormant` because there are no participation/usage `*_snapshot` events yet (attention/`hn_points` is excluded from composite P by design). Engine proven on synthetic cohorts; awaiting real snapshot metrics.
+**Stage 1.5 tracking (prior + this session):** `seismo track --source github` (systemd `seismo-track`, 06:00 UTC) polls active/unmerged github-anchored entities → `repo_snapshot`. `collectors/targets.py::select_targets`. `track()` isolates **per-target** 404/451 (attrition) AND transient `httpx.TransportError` (one disconnect over ~1,000 sequential polls used to zero the whole ~35-min batch). `seismo sweep --days N` (cold-start discovery loop) + `seismo backfill-stars --since --until [--repos]` (GH Archive `repo_star`→cumulative `gh_stars`, HEAVY). `SEISMO_GITHUB_TOKEN` is set.
+**Stage 4 — Comprehension (this session):** LLM checkpoint 1 in `src/seismo/checkpoints/{contracts,llm,evidence,comprehend}.py`. **Migration 0003** adds `comprehension_cards.status` (ok|pending|failed) + `pack_version`. Pluggable provider (A-13): **`mock`** (returns a deterministic rule-derived fallback card, dev/CI = $0), `ollama` (REST, `format`=tool schema), `anthropic` (forced tool call, **no `temperature`** — current models reject it; model from `SEISMO_MODEL_LIVE`/`_HINDCAST`). `contracts.ComprehensionCard` constrains category/maturity to the controlled vocab (`vocab.category_slugs()`, `ladder.MATURITY_STAGES`); `card_tool_schema()` injects the enums. `evidence.build_evidence_pack` is pure/versioned (`PACK_VERSION=1`)/bounded (~12k tok); nothing outside the pack reaches the model. `comprehend.run_comprehend` = trigger policy (DR-05.3: survived-7d+breadth≥2 / promotion-since-card / stale+simmering) → validate-with-one-retry (DR-05.2) then `failed` → versioned store (§5) → **category-disagreement flag** (`card.category_disputed`, never overwrites the rule category) → **budget→`pending`** without calling (A-12). `seismo comprehend [--as-of --entity --limit]`. **70 tests green.** Live-proven at $0 (`comprehend --entity` → valid card). **DoD "50 live cards / 20-card review ≥85% / median ≤$0.03/card" needs a real ollama (`ollama pull qwen2.5:7b-instruct`) or anthropic run** — machinery done, only the spend/eval left. (Only place `anthropic` may be imported is `checkpoints/llm.py` — invariant 3.)
 
 ---
 
@@ -83,12 +85,13 @@ src/seismo/
     targets.py       select_targets() — active/unmerged anchored entities → TrackTarget (Stage 1.5)
     github.py hn.py arxiv.py     Wave-1 collectors
     backfill_gharchive.py        filter_events() (pure, tested) + backfill()
-  checkpoints/       contracts.py stub — ONLY place allowed to import anthropic/ollama
+  checkpoints/       contracts.py llm.py evidence.py comprehend.py  ← Stage 4 (llm.py = ONLY anthropic import)
   identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
   trajectory/        metrics.py cohorts.py velocity.py ladder.py states.py score.py  ← Stage 3
   significance/ memory/ api/ hindcast/   empty (their stages)
 alembic/versions/0001_core_schema.py    schema source of truth
 alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
+alembic/versions/0003_card_status.py         comprehension_cards.status + pack_version (A-12)
 seed/categories.yaml themes.yaml seed_entities.yaml   vocab + day-1 universe
 tests/               test_asof, test_config, test_invariants, test_collectors, conftest (db_session)
 deploy/systemd/      seismo-collect-fast.{service,timer} + deploy/README.md
@@ -194,29 +197,30 @@ Then `canonical_entity_id(entity_id, as_of)` (recursive CTE over `entity_merges`
 - **Insert counts:** `RETURNING` + `len(fetchall())`, not `result.rowcount` (−1 for multi-row psycopg3 inserts).
 - **Test collectors against real APIs**, not only mocks — both Stage-1 bugs were invisible to mocks.
 - **HF `downloads` is a 30-day rolling level, not a counter** — never diff it (doc 03 §2.4). Watch for this in Stage 2/3.
-- **No Anthropic key needed until Stage 4** (use `mock`/`ollama`). Keep `anthropic`/`ollama` imports inside `checkpoints/`.
+- **No Anthropic key needed to run Stage 4** — `mock` (CI/$0) or local `ollama` cover it; only prod/H2 spends. `anthropic` is imported **only** in `checkpoints/llm.py`; ollama is reached via `httpx` (no `ollama` import). `anthropic` path sends no `temperature` (current models 400 on it) and requires `SEISMO_MODEL_LIVE`.
 - Snapshot metrics (stars etc.) are states → `event_type='*_snapshot'`, uid `native:UTC-date`; trajectory diffs them.
 - **Resolution is global + idempotent, not as-of-gated** — `seismo resolve` sweeps *all* unlinked events (the as-of discipline governs graph *reads* via `canonical_entity_id`, not this write pass). Tests that assert counts must use the `clean_db` fixture (conftest) since the dev DB carries committed events.
 - **`_merge_pair` canonicalizes BOTH endpoints then flushes** before writing — transitive refs (hf→paper→repo) must collapse to one terminal survivor, or you hit `entity_merges_pkey` (loser can only be a loser once). Direction: registry-anchored (non-paper) beats paper, then earliest `created_at`.
 - **Unowned events reprocess every run** (HN stories with no registry link never get an attachment link) — harmless/idempotent at v1 scale; revisit with a high-water mark if it ever bites.
 - **Category matcher allows a trailing `s`** (`\b{kw}s?\b`) so keywords match plurals; word boundaries still keep `rag` out of `storage`.
-- **`track()` isolates per-target 404/451** — a deleted/renamed/private repo is expected attrition; without the skip, one dead repo among 1,000+ aborts the whole snapshot batch (found live: `raise_for_status` on the first 404 → 0 snapshots). Systemic errors (403 rate-limit, 5xx) still raise and fail the run.
+- **`track()` isolates per-target 404/451 AND transient `httpx.TransportError`** — a deleted/renamed/private repo (attrition) OR one network disconnect over the ~1,000 sequential polls used to zero the whole ~35-min batch (found live twice: a 404, then a `RemoteProtocolError`). Both now skip that one target and continue; a real outage skips them all → `events_new=0` for monitoring. Systemic HTTP status errors (403 rate-limit, 5xx) still raise and fail the run.
 - **Two sources feed `gh_stars`** — live `repo_snapshot` (absolute level) and backfilled `repo_star` (cumulative count within the GH Archive window). Velocity (7-day *change*) is correct from either; the seam where they meet (live snapshots right after a historical backfill) shows an absolute-vs-window jump — harmless because a hindcast at a past `as_of` sees only backfill. Snapshot upsert dedups `(entity,metric,day)`.
 - **`gh_stars` needs a time series** — a single `track` run is one data point; velocity needs ~2 snapshots ≥7 days apart. The dev DB is all-`dormant` until either the heartbeat accumulates days or `backfill-stars` reconstructs history.
 
-## 15. NEXT — run the sweep + DeepSeek H1, then Stage 4 Comprehension
+## 15. NEXT — light up cards with Ollama, then Stage 5 Dashboard v0
 
-**Done this session (✅):** **Stage 3 Trajectory engine** (`snapshot`+`score`, ladder→velocity→cohort percentiles→hysteresis+warm-up) · **live `seismo track`** (repo_snapshot for known repos; the daily heartbeat) · **`seismo sweep`** (cold-start historical discovery loop) · **`seismo backfill-stars`** (GH Archive `repo_star`→cumulative `gh_stars`) · 404-isolation fix in `track()`. **`SEISMO_GITHUB_TOKEN` is now in `.env`.** 60 tests; H1 *shape* proven synthetically (repo_star→cumulative gh_stars→velocity→breakout).
+**Done this session (✅):** **Stage 4 Comprehension engine** (contracts/llm/evidence/comprehend, migration 0003, mock/ollama/anthropic, trigger policy, category-flag, budget→pending) + tracking transient-error resilience. **70 tests.** Prior session: Stage 3 Trajectory + `track`/`sweep`/`backfill-stars`.
 
-**Stage 3 DoD (doc 06 §6) status:** snapshot+semantics ✅ · cohort percentile+fallback+tests ✅ · ladder+promotions ✅ · hysteresis+history ✅ · as-of purity ✅ · **H1 (DeepSeek→accelerating/breakout on real backfill) ⬜ — logic proven, needs the real GH Archive download.**
+**Stage 4 DoD (doc 05 §7) status:** contract+enums from vocab ✅ · pure/capped/versioned pack + unit tests ✅ · tool-forced call + validation retry + budget ceiling ✅ · trigger policy in `comprehend` ✅ · **50 live cards / 20-card review ≥85% / median ≤$0.03/card ⬜ — needs a real generation run (mock produces valid rows but not gradeable content).**
 
-**The commands now exist; what's left is running the heavy data jobs:**
-1. **Live momentum (going forward):** the daily heartbeat is wired — `seismo track --source github` (systemd timer `seismo-track` at 06:00 UTC). Each day adds one `repo_snapshot` per active repo; after ~8 days there's enough for real `gh_stars` velocity → non-dormant states start appearing. Nothing more to build; it just needs days to accumulate.
-2. **DeepSeek H1 (the Stage 3 DoD gap):** `seismo backfill-stars --since 2024-01-01 --until 2024-06-01 --repos deepseek-ai` → `seismo resolve` → `seismo snapshot --as-of 2024-05-31` → `seismo score --as-of 2024-05-31`; expect DeepSeek entity = `accelerating`/`breakout`. **HEAVY: this downloads the full hourly GH Archive firehose (~120 MB/hr × ~3,600 hrs) — hours of network, hundreds of GB.** Scope tight (the org + the months that matter). This is the one real "run once" job left for the DoD.
-3. **Cold-start sweep (Stage 1.5 exit):** `seismo sweep --days 180` loops discovery over past windows to build cohort mass, then `resolve --cold-start`. Feasible on the Search API (rate-limited, minutes–an hour). Run when you want the historical universe fleshed out; not blocking Stage 4.
-4. **Queue-precision sample ≥80%** (Stage 2 tail) — after the sweep populates R4–R6, sample the 0.60–0.89 band; retune `_RULE_CONF` if <80%.
-5. **`seismo retier` (A-4)** + **minimal 8-company exposure slice** (A-1, pre-Stage 6) — both low priority, tables exist.
+**What's left is running data/LLM jobs, no new engine:**
+1. **Light up real cards (Stage 4 DoD):** `ollama pull qwen2.5:7b-instruct`, set `SEISMO_LLM_PROVIDER=ollama` in `.env`, then `seismo comprehend` (or `--entity <id>` to force one). $0, local. Grade ~20 cards A/B/F for the DoD. Then optionally an `anthropic` run (set `SEISMO_MODEL_LIVE` to a Sonnet-class id + `ANTHROPIC_API_KEY`) for production-quality cards. **Note:** most dev-DB entities have breadth<2 so the trigger picks few — use `--entity` or run the sweep first to grow multi-evidence entities.
+2. **Live momentum / DeepSeek H1 (Stage 3 tail, still open):** heartbeat `seismo track` runs daily (accumulates `gh_stars` velocity over ~8 days). DeepSeek H1 = `seismo backfill-stars --since 2024-01-01 --until 2024-06-01 --repos deepseek-ai` → resolve → snapshot/score `--as-of 2024-05-31`. **HEAVY** GH Archive download (hundreds of GB, hours) — the one real "run once" job for the H1 DoD.
+3. **Cold-start sweep (Stage 1.5 exit):** `seismo sweep --days 180` (Search API, ~minutes–1hr) → cohort mass + more multi-evidence entities (also helps item 1's trigger).
+4. **Queue-precision ≥80%** (Stage 2 tail, post-sweep) · **`seismo retier`** (A-4) · **8-company exposure slice** (A-1, pre-Stage 6) — all low priority, tables exist.
 
-**Then Stage 4 — Comprehension (doc 05, first LLM checkpoint):** needs `SEISMO_LLM_PROVIDER=ollama` (qwen2.5:7b) or `anthropic`+key; dev/CI stays `mock` ($0). Entity → structured card + summary; keep all `anthropic`/`ollama` imports inside `checkpoints/` (invariant 3, CI-greped). Gate never briefs on a `pending` card (A-12).
+**Then Stage 5 — Dashboard v0 (doc 10):** FastAPI read+curation API (incl. minimal `/search` FTS+trigram, A-10) + Next.js 14 dashboard; surfaces the Radar (momentum states), dossiers (cards + "changed since v{n-1}" diff, doc 05 §5), and the merge-queue curation UI (the Stage 2 queue is populated but has no UI yet). Gate/briefs (Stage 6/7) still need the exposure-map slice (A-1) first.
 
-**Trajectory gotchas for next session:** (a) `score` writes the **whole replayed history** `[first_seen..as_of]` each run and a later `as_of` rewrites recent days — expected for a daily heartbeat, still pure per `as_of`. (b) Cohort membership is evaluated once at the run's `as_of` (velocities are per-day) — a deliberate, documented simplification that keeps `score --as-of D` a pure function of events ≤ D. (c) `evidence_breadth` needs ≥2 evidence *types* for a `breakout` (A-5, `BREAKOUT_MIN_BREADTH=2`); a github-only entity tops out below breakout no matter how fast it rises. (d) percentile ranking is done in Python (not SQL `percent_rank`) because cohort membership is as-of-dependent; the heavy 7-day window is still set-wise.
+**Comprehension gotchas for next session:** (a) `mock` returns the deterministic *fallback* card (rule category + "not established by evidence" text) — real content needs ollama/anthropic. (b) The model's `category` is a **proposal**: stored as `card.category` + `card.category_disputed`, but `entity_category_history` (the deterministic category) is never touched. (c) budget is a **calendar-month** sum of `cost_usd`; `pending` cards (A-12) carry the fallback card + `status='pending'` and cost 0. (d) forcing `--entity` bypasses the trigger and always appends a new version. (e) `anthropic` path sends **no `temperature`** (rejected by current models) and needs `SEISMO_MODEL_LIVE` set or it raises.
+
+**Trajectory gotchas (still current):** (a) `score` writes the **whole replayed history** `[first_seen..as_of]` each run and a later `as_of` rewrites recent days — expected for a daily heartbeat, still pure per `as_of`. (b) Cohort membership is evaluated once at the run's `as_of` (velocities are per-day) — a deliberate, documented simplification that keeps `score --as-of D` a pure function of events ≤ D. (c) `evidence_breadth` needs ≥2 evidence *types* for a `breakout` (A-5, `BREAKOUT_MIN_BREADTH=2`); a github-only entity tops out below breakout no matter how fast it rises. (d) percentile ranking is done in Python (not SQL `percent_rank`) because cohort membership is as-of-dependent; the heavy 7-day window is still set-wise.
