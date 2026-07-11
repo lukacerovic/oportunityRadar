@@ -295,6 +295,24 @@ def test_post_validation_rejects_illegal_mechanism(clean_db: Session) -> None:
     assert impact._post_validate(ok, pack) is None
 
 
+def test_post_validation_rejects_keyword_counter_mechanism(clean_db: Session) -> None:
+    # A capable model sometimes fills counter_mechanism with a bare taxonomy word instead of an
+    # argument (observed with qwen 7B). idea-spec §7: a one-sided brief is marketing — reject it.
+    session = clean_db
+    _map_surface(session)
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    pack = build_brief_pack(session, _entity(session, created=t0), t0 + timedelta(days=1))
+    keyword = ImpactBrief.model_validate(_valid_brief() | {"counter_mechanism": "dependency_risk"})
+    assert impact._post_validate(keyword, pack) is not None
+    terse = ImpactBrief.model_validate(_valid_brief() | {"counter_mechanism": "won't matter"})
+    assert impact._post_validate(terse, pack) is not None
+    real = ImpactBrief.model_validate(
+        _valid_brief()
+        | {"counter_mechanism": "Jevons: cheaper inference expands total agent usage."}
+    )
+    assert impact._post_validate(real, pack) is None
+
+
 # --- mock end-to-end + versioning -------------------------------------------
 
 

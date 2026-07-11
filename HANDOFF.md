@@ -6,8 +6,8 @@
 
 **This session shipped:** **Stage 8 — Memory & Synthesis (doc 09).** Deterministic **Changes view** (`memory/changes.py` → `changes_daily`, templated diffs, no LLM), automated **momentum calibration** (`memory/calibration.py` → `calibration_snapshots`: breakout-survival + fade-reaccel), and **brief forward-scoring** (`memory/scoring.py`: assembler + **A-7 auto-evaluation** of `system` observables + `record_score`). Migration 0005, `seismo changes`/`seismo calibrate` CLI (+`changes` in `daily.sh`), API (`/changes/{day}`, `/calibration`, `/briefs/{id}/score-packet`, `/briefs/{id}/score`), dashboard `/changes/[day]` + a scoring panel on published briefs. 9 `test_memory.py` + `test_api.py` +1. Also shipped **Stage 7** earlier this session (§20). Full Stage-8 narrative in **§21**.
 
-**IMMEDIATE next task (pick one, see §21.5):** (a) **prove brief quality** — regenerate a brief or two with the 7B/anthropic model (the 3B daily model is the current quality ceiling, not the schema); (b) **enrich briefs** with scenarios (bull/base/bear exposure branches) + baselined observables (user asked about this — deferred pending scoring, which now exists); (c) **H2 DeepSeek hindcast** (heavy `backfill-stars`); (d) **curate the exposure map 8→30** with real 10-K figures.
-**To resume:** "Read HANDOFF.md (esp. §21)." Stages 0–8 complete; the calibration loop exists but most instruments read n=0 until ~90 days of daily momentum accrue.
+**IMMEDIATE next task (pick one, see §22.4):** (a) **Stage 9 — DeepSeek hindcast** (the validation that earns trust; needs the heavy `backfill-stars`); (b) **Stage 10 — deploy + start the daily soak** (doc 12); (c) **curate the exposure map 8→30** with real 10-K figures. Brief quality is now **confirmed good with the 7B model** and a counter-mechanism guard shipped (§22) — scenario/KPI enrichment is NOT needed.
+**To resume:** "Read HANDOFF.md (esp. §22)." Stages 0–8 complete + brief-quality validated; calibration instruments read n=0 until ~90 days of daily momentum accrue.
 
 ---
 
@@ -476,3 +476,31 @@ The user's original question — are briefs good enough, add KPIs/scenarios? —
 3. **H2 DeepSeek hindcast** (§20.5) — now that scoring exists, a hindcast brief can be forward-scored too.
 4. **Curate the map 8→30** with real 10-K figures — unlocks honest quantification later.
 5. **Quarterly calibration report** (doc 09 §4) — the one markdown artifact still unbuilt (brief-score distribution + momentum curves + map staleness). Small; do it once there's data to report.
+
+---
+
+## 22. SESSION LOG (2026-07-11, cont.) — brief-quality A/B (3B vs 7B) + counter-mechanism guard
+
+Answered the standing "are the briefs good enough / add scenarios?" question **empirically** by regenerating 3 briefs (2857 inference-runtime, 6603 code-assistant, 6611 multimodal-model) with `qwen2.5:7b-instruct` and diffing against the 3B daily model.
+
+### 22.1 Finding: the schema is good; the 3B model was the ceiling
+- **Entity 2857 (Linear Attention):** 3B produced **one vague `sector_class` exposure**; the **7B produced five real ticker+revenue-line exposures with divergent directions** — NVDA **negative** (fewer GPUs per capability) while AMZN/GOOGL/MSFT cloud lines and AMD are **positive** (more inference workloads). That NVDA-down/cloud-up split is genuinely investor-grade and came from the *existing* schema. **Conclusion: do NOT add scenarios/KPIs — the gap was model capability, not schema.**
+- The daily model stays `qwen2.5:3b-instruct` (8 GB M2); use the 7B for batch/quality regens (`SEISMO_OLLAMA_MODEL=qwen2.5:7b-instruct uv run seismo brief --entity-id N`). The 7B is ~4 min/brief on this box.
+
+### 22.2 Fix shipped: counter_mechanism must be a real argument (idea-spec §7)
+The A/B exposed a real defect: the **7B mis-filled `counter_mechanism` with a bare taxonomy keyword** (`"dependency_risk"`) on both briefs, instead of a fair argument — the exact "one-sided brief is marketing" failure idea-spec §7 warns about. (Ironically the 3B wrote a proper counter.) Fixed in `checkpoints/impact.py`:
+- **Prompt:** `counter_mechanism` is now spelled out as "a REQUIRED one-to-three-sentence ARGUMENT … prose, NOT a mechanism name — never answer with a bare word like 'dependency_risk'."
+- **Post-validation** (`_post_validate`): rejects a counter that is a bare mechanism keyword (`cm.lower().rstrip('.') in MECHANISMS`) or `< 4` words → triggers the existing one-retry, then `failed`. A brief without a real counter-mechanism is not publishable.
+- **Proven:** regenerated 2857 v3 with 7B → counter is now *"The Jevons paradox suggests that cheaper inference could lead to an increase in overall model usage, potentially offsetting any direct revenue loss…"* — a genuine argument, 5 exposures kept.
+- +1 test (`test_post_validation_rejects_keyword_counter_mechanism`); 3 test helpers updated to realistic counters; ruff/mypy clean.
+
+### 22.3 Gotcha
+- **Weak models will now `fail` more briefs** if they can't produce a real counter-mechanism — that's intended (the bar is genuine). The 3B daily model usually writes a sentence, so this mostly bites lazy keyword outputs. If daily failure rate climbs, the lever is a better daily model, not relaxing the guard.
+- Entity 2857 now has **v1 (3B) + v2/v3 (7B)** briefs in the dev DB — the dashboard shows the latest (v3). Good demo content.
+
+### 22.4 NEXT — the project is feature-complete; what's left is validation + ops + data
+Per the "what's left" analysis: all 7 layers + both checkpoints + dashboard + calibration are built and the brief quality is validated. Remaining to call v1 *complete*:
+1. **Stage 9 — Hindcast validation (doc 11):** DeepSeek (positive) + Reflection-70B (must be suppressed) + one mid-size, via a case-YAML/assertion harness (`seismo hindcast` is a stub) + historical loaders. The biggest remaining code chunk; the scientific proof it works. Heavy `backfill-stars` (hundreds of GB).
+2. **Stage 10 — Operations (doc 12):** deploy to the Hetzner VPS (Caddy, systemd timers `Persistent=true`, pg_dump backups + restore drill, healthchecks.io, runbook) + a 14-day soak. `deploy/` has scaffolding.
+3. **Data:** curate the map 8→30 with real 10-K figures; build HF + PyPI download tracking (4th/5th evidence types, A-5); then just *run it daily* ~1–2 weeks so momentum stops being all-dormant and the calibration instruments start reading > n=0.
+Feature work remaining ≈ 3–5 focused sessions; project *maturity* is gated on weeks-to-a-quarter of daily running (momentum accrual, 14-day soak, quarterly rituals).

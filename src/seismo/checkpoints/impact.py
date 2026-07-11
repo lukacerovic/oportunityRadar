@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from seismo.checkpoints.contracts import ImpactBrief, brief_tool_schema
+from seismo.checkpoints.contracts import MECHANISMS, ImpactBrief, brief_tool_schema
 from seismo.checkpoints.impact_pack import BriefPack, build_brief_pack
 from seismo.checkpoints.llm import complete_brief
 from seismo.config import settings
@@ -41,8 +41,10 @@ SYSTEM_PROMPT = (
     "sector_class string for private/unlisted actors.\n"
     "- Name at least one mechanism from the taxonomy, and trace an explicit 2–5 step transmission "
     "path from the entity to each affected revenue line.\n"
-    "- State the strongest counter-mechanism as convincingly as its holder would — this field is "
-    "required.\n"
+    "- counter_mechanism is a REQUIRED one-to-three-sentence ARGUMENT for why the thesis might be "
+    "wrong, stated as convincingly as its holder would (e.g. the Jevons paradox: cheaper inference "
+    "grows total volume). It is prose, NOT a mechanism name — never answer with a bare word like "
+    "'dependency_risk'.\n"
     "- If the honest direction is ambiguous, say ambiguous. That is a finding, not a failure.\n"
     "- Give at least one dated observable that would settle the thesis; prefer ones the system can "
     "measure (source='system').\n"
@@ -158,10 +160,20 @@ def _validate(content: dict[str, Any], pack: BriefPack) -> tuple[dict[str, Any] 
     return brief.model_dump(), None
 
 
+_COUNTER_MIN_WORDS = 4  # a bare mechanism keyword is 1 word; a real argument is a sentence
+
+
 def _post_validate(brief: ImpactBrief, pack: BriefPack) -> str | None:
     """Every ticker exposure's revenue_line must exist for that ticker in the loaded map; every
-    mechanism must be legal for a relation on the touched map surface (doc 08 §2)."""
+    mechanism must be legal for a relation on the touched map surface; and counter_mechanism must be
+    a real argument, not a keyword (doc 08 §2 / idea-spec §7 — a one-sided brief is marketing)."""
     reach = pack.reach
+    cm = brief.counter_mechanism.strip()
+    if cm.lower().rstrip(".") in MECHANISMS or len(cm.split()) < _COUNTER_MIN_WORDS:
+        return (
+            "counter_mechanism must be a fair one-to-three-sentence argument for why the thesis "
+            "might be wrong, not a bare mechanism name"
+        )
     for exp in brief.exposures:
         if exp.kind != "ticker":
             continue

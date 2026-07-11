@@ -287,7 +287,7 @@ def test_briefs_inbox_detail_and_review(clean_db: Session) -> None:
                 "magnitude_class": "material",
             }
         ],
-        "counter_mechanism": "Jevons.",
+        "counter_mechanism": "Jevons paradox: cheaper inference grows total volume.",
         "observables": [
             {
                 "statement": "tokens/customer",
@@ -322,7 +322,7 @@ def test_briefs_inbox_detail_and_review(clean_db: Session) -> None:
     d = client.get(f"/briefs/{eid}").json()
     assert d["mechanisms"] == ["substitution"]
     assert d["exposures"][0]["ref"] == "NVDA"
-    assert d["counter_mechanism"] == "Jevons."
+    assert d["counter_mechanism"] == "Jevons paradox: cheaper inference grows total volume."
     assert d["versions"] == [1]
 
     # reject requires a reason
@@ -378,7 +378,7 @@ def test_changes_and_calibration_and_scoring(clean_db: Session) -> None:
                 "magnitude_class": "material",
             }
         ],
-        "counter_mechanism": "jevons",
+        "counter_mechanism": "Jevons paradox: cheaper inference grows total volume.",
         "observables": [
             {
                 "statement": "downloads fall",

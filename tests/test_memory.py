@@ -97,7 +97,7 @@ def _brief(
                 "magnitude_class": "material",
             }
         ],
-        "counter_mechanism": "jevons",
+        "counter_mechanism": "Jevons paradox: cheaper inference grows total demand.",
         "observables": observables,
         "confidence": "med",
         "horizon": "quarters",
