@@ -211,9 +211,22 @@ def score(as_of: str = typer.Option(None, help="ISO date; default now.")) -> Non
 
 
 @app.command()
-def comprehend() -> None:
-    """Layer 3 — comprehension checkpoint (doc 05)."""
-    _stub("comprehend", _parse_as_of(None))
+def comprehend(
+    as_of: str = typer.Option(None, help="ISO date; default now."),
+    entity: int = typer.Option(None, help="Force a card for one entity id (skips the trigger)."),
+    limit: int = typer.Option(None, help="Cap candidates this run (cost control)."),
+) -> None:
+    """Layer 3 — comprehension checkpoint 1 (doc 05). Provider pluggable; dev/CI = mock ($0)."""
+    from seismo.checkpoints.comprehend import run_comprehend
+    from seismo.db import session_scope
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("comprehend", when):
+        with session_scope() as session:
+            stats = run_comprehend(session, when, entity_id=entity, limit=limit)
+        typer.echo(
+            f"[comprehend] provider={settings.llm_provider} as_of={when.date()} — {stats.as_note()}"
+        )
 
 
 @app.command()

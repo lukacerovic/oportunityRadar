@@ -161,6 +161,9 @@ class ComprehensionCard(Base):
     card: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    # ok | pending (budget ceiling, A-12) | failed (validation error after retry, DR-05.2).
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="ok")
+    pack_version: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

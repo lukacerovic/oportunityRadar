@@ -79,3 +79,9 @@ def assign_category(text: str) -> str:
         if any(m.search(text) for m in cat.matchers):
             return cat.slug
     return UNCATEGORIZED
+
+
+def category_slugs() -> tuple[str, ...]:
+    """All controlled category slugs plus ``uncategorized`` — the allowed set for the LLM card's
+    ``category`` field (doc 05 §1). Sorted for a stable JSON-schema enum."""
+    return tuple(sorted({c.slug for c in categories()} | {UNCATEGORIZED}))

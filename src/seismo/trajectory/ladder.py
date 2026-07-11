@@ -24,6 +24,17 @@ from sqlalchemy.orm import Session
 
 from seismo.db import canonical_entity_id
 
+# The maturity ladder, low → high (doc 06 §3). Monotonic; the canonical vocabulary for both the
+# ladder detector here and the comprehension card's ``maturity_stage`` field (doc 05 §1).
+MATURITY_STAGES: tuple[str, ...] = (
+    "idea_paper",
+    "public_code",
+    "usable_artifact",
+    "distribution",
+    "commercialization",
+    "institutional_adoption",
+)
+
 INSTITUTIONAL_WINDOW_DAYS = 90
 INSTITUTIONAL_MIN_ORGS = 3
 # API-launch keywords that promote a release/changelog to commercialization (versioned list).
