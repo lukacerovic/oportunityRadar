@@ -121,6 +121,8 @@ seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 
 ## 8. Run / verify
 
+**Daily operation:** `./scripts/daily.sh` runs the whole heartbeat (collect→track→resolve→snapshot→score→comprehend); operator guide is `DAILY.md`. `track` is capped via `--limit` (default 1500) because the free GitHub tier is 5000 calls/hr vs ~9000 active targets — bounding the active set properly is a future `retier` (A-4) task.
+
 ```bash
 uv sync
 uv run alembic upgrade head
