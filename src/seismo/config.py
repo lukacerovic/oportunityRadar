@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     pending_alert_hours: int = 48
     coldstart_sweep_days: int = 180
 
+    # --- significance gate (doc 07 §2; weights tunable, defaults faithful to the doc) ---
+    gate_m_breakout: float = 1.0  # peak-state base for Momentum when the week peaked at breakout
+    gate_m_accelerating: float = 0.7  # peak-state base when the week peaked at accelerating
+    gate_m_percentile_floor: float = 0.5  # M = base × (floor + (1-floor)·P_peak); keeps breakout≈1
+    gate_score_reach_floor: float = 0.4  # the 0.4 in Score's (0.4 + 0.6·R) term
+    gate_score_novelty_floor: float = 0.4  # the 0.4 in Score's (0.4 + 0.6·N) term
+    gate_rebrief_days: int = 60  # a published brief younger than this suppresses re-briefing
+    gate_novelty_cohort_days: int = 180  # the (category, age<Nd) window for the Novelty cohort
+
     # --- momentum state machine (doc 06 §4; tuned against hindcasts, not vibes) ---
     momentum_p_simmering: float = 0.60  # velocity pctl for simmering (>=1 metric)
     momentum_p_accelerating: float = 0.80  # velocity pctl for accelerating (>=2 metrics)

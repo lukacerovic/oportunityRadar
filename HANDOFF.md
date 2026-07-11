@@ -51,7 +51,7 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 3 — Trajectory (snapshot + score engine; live H1 needs star history) | ✅ core | `3c46cc1` `dc581ec` |
 | 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | `95f1738` |
 | 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | `b005474` `6074159` |
-| 6 — Significance — A-1 exposure map ✅ (loader + 8-co slice + reach_links); gate engine next | 🚧 | `45bc898`→ |
+| 6 — Significance — A-1 exposure map ✅ + gate engine ✅ (M×R×N, top-K, audit, H3); dashboard page next | ✅ core | `0056dff`→ |
 | 7 — Impact | ⬜ | — |
 | 8 — Memory & scoring | ⬜ | — |
 | 9 — Hindcast completion | ⬜ | — |
@@ -91,7 +91,7 @@ src/seismo/
 dashboard/           Next.js 14 app (App Router, Tailwind, Meridian palette) ← Stage 5 UI; node_modules git-ignored
   identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
   trajectory/        metrics.py cohorts.py velocity.py ladder.py states.py score.py  ← Stage 3
-  significance/      exposure.py  ← Stage 6 A-1: exposure-map YAML schema + load_map + reach_links derivation
+  significance/      exposure.py (A-1 map loader) + gate.py (Stage 6 M×R×N gate)  ← Stage 6
   memory/ hindcast/   empty (their stages)
 alembic/versions/0001_core_schema.py    schema source of truth
 alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
@@ -300,7 +300,18 @@ scope with `--limit` (5000 GitHub calls/hr). Original planning notes below, kept
 
 **Run it:** `uv run alembic upgrade head` (applies 0004) → `uv run seismo load-map`.
 
-**NEXT — the gate engine** (`src/seismo/significance/gate.py`, doc 07):
+**The gate engine — DONE this session.** `src/seismo/significance/gate.py` + `seismo gate --week`:
+candidate selection (non-provisional accelerating/breakout in the week, minus recently-briefed) →
+**M×R×N** score → top-`briefs_per_week` pass, rest suppressed → a `gate_decisions` audit row for
+**every** candidate (pass + suppressed with `reason`: `unmapped_reach`/`card_pending`/`budget`).
+M = peak-state base (breakout 1.0 / accel 0.7) × (floor + (1−floor)·P_peak); R via `reach_links`
+(R=0 hard-excluded per A-6 → map-gaps; else 0.5, or 1.0 if ≥3 lines or any `core`); N = first-3 in
+(category, age<180d) cohort → 1.0 / small cohort → 0.6 / crowded → 0.3, from the doc-06 cohort facts.
+Gate config keys added (`gate_*`). Re-runnable (deletes the week's rows first). **`tests/test_gate.py`
+(9 tests)** on synthetic momentum: A-6 hard exclusion, A-12 pending-card block, provisional
+exclusion, top-K budget, the score/momentum arithmetic, and **H3** (breakout + zero-reach flop →
+suppressed, never briefed). Live smoke: `seismo gate` on the dev DB = 0 candidates (all-dormant, as
+expected). **Reference — the original NEXT plan (now built):**
 1. **Candidate set** (doc 07 §1): entities `accelerating`/`breakout` during the week, minus published-brief-<60d, minus **provisional** qualifying states (doc 14 §5 — read `momentum_states.inputs.provisional`).
 2. **Components:** **M** from peak state (breakout=1.0, accelerating=0.7) × velocity percentile `inputs.P`; **R** from `reach_links` matched on the entity's `category_asof` — **R=0 is a hard exclusion** (A-6) → `decision='suppressed'`, `reason='unmapped_reach'`, aggregated into **map-gaps**; among eligible R∈{0.5 (≥1 line), 1.0 (≥3 lines or any `core`)}; **N** = first-3-in-(category,age<180d)-cohort→1.0, cohort<10→0.6, else 0.3.
 3. **Score = M × (0.4 + 0.6·R) × (0.4 + 0.6·N)** over the eligible set only. Top-K (`briefs_per_week`=5) pass. **Every** candidate (passed/suppressed) gets a `gate_decisions` row with the component breakdown (table exists: entity_id, week, decision, score, components JSONB).

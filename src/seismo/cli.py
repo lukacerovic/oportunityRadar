@@ -300,10 +300,19 @@ def load_map_cmd(
 
 
 @app.command()
-def gate(week: str = typer.Option(None, help="ISO week, e.g. 2026-W28.")) -> None:
-    """Layer 5 — significance gate (doc 07)."""
-    with record_pipeline_run("gate"):
-        typer.echo(f"[gate] week={week} — not implemented yet")
+def gate(
+    week: str = typer.Option(None, help="ISO week, e.g. 2026-W28; default current week."),
+) -> None:
+    """Layer 5 — deterministic significance gate (doc 07). Picks ≤K briefs/week via M×R×N; writes a
+    ``gate_decisions`` audit row for every candidate (passed + suppressed). No LLM (DR-07.1)."""
+    from seismo.db import session_scope
+    from seismo.significance.gate import parse_week, run_gate
+
+    week_start = parse_week(week)
+    with record_pipeline_run("gate", _parse_as_of(week_start.isoformat())):
+        with session_scope() as session:
+            stats = run_gate(session, week_start)
+        typer.echo(f"[gate] {stats.as_note()}")
 
 
 @app.command()
