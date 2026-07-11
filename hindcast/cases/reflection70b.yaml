@@ -1,0 +1,38 @@
+# Reflection-70B — flop, negative (doc 11 §3). Sept 2024: an enormous HN/attention spike plus an HF
+# presence, whose claims collapsed within days — no distribution, no commitment. This is the case
+# that makes the positive cases mean something: attention alone must NOT earn a brief.
+#
+# The system may register the attention (momentum can briefly reach `simmering`), but the gate must
+# suppress it (H3) and NO brief may exist. Suppression here is structural: an attention-only spike
+# never climbs to accelerating/breakout (attention is excluded from the velocity composite,
+# idea-spec principle 3), so it never even becomes a gate candidate.
+#
+# NOTE (loader status, doc 11 §1): the HN (Algolia-historical) and HF loaders are documented gaps.
+# Until they ship this case cannot be replayed on real data — the entity ref will not resolve and the
+# brief_absent / gate assertions pass vacuously. Wire the loaders before treating a green run as
+# meaningful. See HANDOFF.
+case: reflection70b
+window: {from: 2024-09-01, to: 2024-09-30}
+
+seeds:
+  hf_orgs: ["mattshumer/Reflection-Llama-3.1-70B"]
+  # HN attention is the real signal here; Algolia is natively historical (doc 11 §1) once wired.
+
+assertions:
+  # The attention was real — momentum is allowed to reach simmering (but no further, see H3/gate).
+  - id: H3a
+    type: momentum
+    entity: "hf:mattshumer/Reflection-Llama-3.1-70B"
+    states: [simmering, accelerating, breakout]
+    as_of: 2024-09-30
+
+  # H3 — the gate must never pass it (attention without distribution/commitment is not significant).
+  - id: H3b
+    type: gate
+    entity: "hf:mattshumer/Reflection-Llama-3.1-70B"
+    decision: suppressed
+
+  # …and therefore no brief may exist for it, in any status.
+  - id: H3c
+    type: brief_absent
+    entity: "hf:mattshumer/Reflection-Llama-3.1-70B"

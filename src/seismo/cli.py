@@ -378,10 +378,40 @@ def calibrate(as_of: str = typer.Option(None, help="ISO date; default now.")) ->
 
 
 @app.command()
-def hindcast(case: str = typer.Option(..., help="Case name, e.g. deepseek.")) -> None:
-    """Validation harness (doc 11)."""
+def hindcast(
+    case: str = typer.Option(..., help="Case name, e.g. deepseek (hindcast/cases/<case>.yaml)."),
+    reload: bool = typer.Option(
+        False, "--reload", help="Run the historical loader first (HEAVY: GH Archive firehose)."
+    ),
+    step_days: int = typer.Option(1, help="Days per replay step; 1 = daily (as-of correct)."),
+    report_path: str = typer.Option(None, help="Write the markdown trace report to this file."),
+) -> None:
+    """Validation harness (doc 11) — replay the pipeline over a case window and grade its pinned
+    assertions. ``--reload`` backfills seeds first (the GH Archive star firehose is hundreds of GB;
+    scope tightly). Without it, the replay grades whatever is already in ``raw_events``."""
+    from seismo.db import session_scope
+    from seismo.hindcast.case import load_case_by_name
+    from seismo.hindcast.runner import run_hindcast
+
+    parsed = load_case_by_name(case)
     with record_pipeline_run(f"hindcast:{case}"):
-        typer.echo(f"[hindcast] case={case} — not implemented yet")
+        with session_scope() as session:
+            result = run_hindcast(session, parsed, reload=reload, step_days=step_days)
+        typer.echo(f"[hindcast] {result.as_note()}")
+        for r in result.results:
+            mark = typer.style("PASS", fg=typer.colors.GREEN) if r.passed else typer.style(
+                "FAIL", fg=typer.colors.RED
+            )
+            typer.echo(f"  {mark} {r.id} ({r.type}): {r.detail}")
+        for w in result.warnings:
+            typer.echo(typer.style(f"  note: {w}", fg=typer.colors.YELLOW))
+    if report_path:
+        from pathlib import Path
+
+        Path(report_path).write_text(result.report)
+        typer.echo(f"[hindcast] report written to {report_path}")
+    if not result.passed:
+        raise typer.Exit(code=1)
 
 
 # --- health -----------------------------------------------------------------

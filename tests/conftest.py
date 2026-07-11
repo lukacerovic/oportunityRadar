@@ -30,6 +30,7 @@ _CLEAR_TABLES = [
     "impact_briefs",
     "changes_daily",
     "calibration_snapshots",
+    "hindcast_runs",
     "entities",
     "raw_events",
 ]

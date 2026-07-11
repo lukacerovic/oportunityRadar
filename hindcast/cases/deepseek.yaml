@@ -1,0 +1,51 @@
+# DeepSeek — positive, pinned (doc 11 §2/§3). The system is graded on the FORESHOCK, not the quake:
+# the lagging confirmation (Jan 2025 repricing) is deliberately outside the window. The brief is
+# pinned at 2024-05-31, so H2 sees only pre-repricing evidence.
+#
+# NOTE (loader status, doc 11 §1): only the GitHub star history has a working backfill loader
+# (GH Archive). The arXiv / Hugging Face / Wayback loaders are documented gaps — until they ship,
+# the `arxiv:`/`hf:` refs in H1a will not resolve and H1a will report the miss (honestly). Run this
+# case only after `backfill-stars` (HEAVY) and the remaining loaders exist. See HANDOFF.
+case: deepseek
+window: {from: 2024-01-01, to: 2024-07-31}
+
+seeds:
+  github: [deepseek-ai/DeepSeek-V2, deepseek-ai]
+  arxiv: ["2405.04434"]          # DeepSeek-V2
+  hf_orgs: [deepseek-ai]
+  wayback: ["platform.deepseek.com"]
+
+brief:
+  as_of: 2024-05-31
+  entity: "github:deepseek-ai/deepseek-v2"
+
+assertions:
+  # H1a — the paper, the repo, and the HF org resolve to ONE entity (rules R1/R2).
+  - id: H1a
+    type: identity
+    as_of: 2024-05-31
+    refs:
+      - "github:deepseek-ai/deepseek-v2"
+      - "arxiv:2405.04434"
+      - "hf:deepseek-ai"
+
+  # H1b — momentum climbs to at least accelerating before the pin (the foreshock the gate can spend).
+  - id: H1b
+    type: momentum
+    entity: "github:deepseek-ai/deepseek-v2"
+    states: [accelerating, breakout]
+    as_of: 2024-05-31
+
+  # H2 — the impact brief names the right mechanisms and exposures from ≤2024-05-31 evidence
+  # (schema-level facts only; run 3× for the 3/3 stochastic requirement, doc 11 §2).
+  - id: H2
+    type: brief
+    entity: "github:deepseek-ai/deepseek-v2"
+    as_of: 2024-05-31
+    mechanisms_superset: [cost_collapse]
+    mechanisms_intersect: [commoditization]
+    exposures_include_tickers: [NVDA]
+    exposures_include_any_ticker: [MSFT, GOOGL]
+    counter_mechanism_nonempty: true
+    observables_nonempty: true
+    observables_have_horizon: true

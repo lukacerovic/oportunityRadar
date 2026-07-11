@@ -262,6 +262,28 @@ class ReachLink(Base):
 # --- Bookkeeping ------------------------------------------------------------
 
 
+class HindcastRun(Base):
+    """One execution of a pinned validation case (doc 11 §4). The permanent regression record: the
+    production pipeline, run over backfilled history at past ``as_of`` dates, still reproduces (or
+    still suppresses) the case. Re-running appends a new row — the ledger keeps history."""
+
+    __tablename__ = "hindcast_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    case_name: Mapped[str] = mapped_column(Text, nullable=False)
+    window_from: Mapped[date] = mapped_column(Date, nullable=False)
+    window_to: Mapped[date] = mapped_column(Date, nullable=False)
+    brief_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    results: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    report: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CollectorRun(Base):
     __tablename__ = "collector_runs"
 
@@ -305,6 +327,7 @@ __all__ = [
     "BriefScore",
     "ExposureCompany",
     "ReachLink",
+    "HindcastRun",
     "CollectorRun",
     "PipelineRun",
 ]
