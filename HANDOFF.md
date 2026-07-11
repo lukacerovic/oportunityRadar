@@ -51,7 +51,7 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 3 — Trajectory (snapshot + score engine; live H1 needs star history) | ✅ core | `3c46cc1` `dc581ec` |
 | 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | `95f1738` |
 | 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | `b005474` `6074159` |
-| 6 — Significance — A-1 exposure map ✅ + gate engine ✅ (M×R×N, top-K, audit, H3); dashboard page next | ✅ core | `0056dff`→ |
+| 6 — Significance — A-1 map ✅ + gate engine ✅ + gate dashboard page ✅ (`/gate/[week]`) | ✅ | `0056dff`→ |
 | 7 — Impact | ⬜ | — |
 | 8 — Memory & scoring | ⬜ | — |
 | 9 — Hindcast completion | ⬜ | — |
@@ -318,7 +318,7 @@ expected). **Reference — the original NEXT plan (now built):**
 2. **Components:** **M** from peak state (breakout=1.0, accelerating=0.7) × velocity percentile `inputs.P`; **R** from `reach_links` matched on the entity's `category_asof` — **R=0 is a hard exclusion** (A-6) → `decision='suppressed'`, `reason='unmapped_reach'`, aggregated into **map-gaps**; among eligible R∈{0.5 (≥1 line), 1.0 (≥3 lines or any `core`)}; **N** = first-3-in-(category,age<180d)-cohort→1.0, cohort<10→0.6, else 0.3.
 3. **Score = M × (0.4 + 0.6·R) × (0.4 + 0.6·N)** over the eligible set only. Top-K (`briefs_per_week`=5) pass. **Every** candidate (passed/suppressed) gets a `gate_decisions` row with the component breakdown (table exists: entity_id, week, decision, score, components JSONB).
 4. **`seismo gate --week`** wired (currently a stub in cli.py); tests incl. edge cohorts + **H3** (Reflection-70B-style flop: high M, thin R → suppressed). Add config weights if tuning is needed (defaults inline).
-5. Then Stage 7 dashboard: `/gate/[week]` page (passed + suppressed lists), then the impact brief (LLM checkpoint 2, doc 08 §2 — new contract in `checkpoints/contracts.py`).
+5. ~~Stage 7 dashboard: `/gate/[week]` page~~ **DONE** — API `GET /gate/{week}` (`api/app.py`, models `GateWeekResponse`/`GateDecisionItem`/`GateComponents`) + Next page `dashboard/app/gate/[week]/page.tsx` (passed + suppressed-with-reasons + map-gaps + week switcher; nav "Gate" → `/gate/current`). Verified live: renders the real suppressed breakout (`rightnow-ai/auto`, Card-pending, M0.50 R1.00 N0.30). Next real Stage-7 work is the **impact brief** (LLM checkpoint 2, doc 08 §2 — new contract in `checkpoints/contracts.py`).
 
 **Gotchas:** (a) the gate is deterministic — **no LLM** (DR-07.1); the model only writes the brief *after* the gate. (b) `R=0` excludes *before* scoring, not a floor (A-6). (c) provisional/cold-start entities never earn a brief (doc 14 §5) even if `accelerating`. (d) with everything currently `dormant`, the live gate passes nobody until momentum accrues — test the gate on synthetic/hindcast momentum rows, not the current dev DB. (e) the exposure-map figures are placeholders — don't cite them as real financials.
 

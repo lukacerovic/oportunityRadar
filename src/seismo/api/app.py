@@ -9,7 +9,7 @@ OpenAPI schema generates a drift-proof TS client.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -435,6 +435,87 @@ def _apply_merge(session: Session, row: Any, as_of: datetime) -> None:
     )
     session.execute(
         text("UPDATE entities SET merged_into = :s WHERE id = :l"), {"s": survivor, "l": loser}
+    )
+
+
+# --- significance gate audit (doc 07 §3) ------------------------------------
+
+
+def _iso_week(d: date) -> str:
+    iso = d.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+@app.get("/gate/{week}", response_model=m.GateWeekResponse)
+def gate_week(week: str, session: Session = Depends(get_session)) -> m.GateWeekResponse:
+    """A week's gate decisions — passed + suppressed with the M×R×N breakdown and map-gaps.
+
+    ``week`` is an ISO week (``2026-W28``) or ``current``/``latest`` (the most recent week that has
+    decisions, else the current calendar week). Trust in the gate comes from seeing what it did
+    *not* pass, so the suppressed list — with reasons — is first-class here (doc 07 §3)."""
+    from seismo.significance.gate import parse_week
+
+    if week in ("current", "latest"):
+        latest = session.execute(text("SELECT MAX(week) FROM gate_decisions")).scalar()
+        week_start = latest or parse_week(None)
+    else:
+        try:
+            week_start = parse_week(week)
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(status_code=400, detail=f"bad week {week!r}") from exc
+
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT g.entity_id, g.decision, g.score, g.components,
+                       e.canonical_name, e.entity_type, e.category
+                FROM gate_decisions g
+                JOIN entities e ON e.id = g.entity_id
+                WHERE g.week = :w
+                ORDER BY g.score DESC, g.entity_id
+                """
+            ),
+            {"w": week_start},
+        )
+        .mappings()
+        .all()
+    )
+
+    passed: list[m.GateDecisionItem] = []
+    suppressed: list[m.GateDecisionItem] = []
+    map_gaps: dict[str, int] = {}
+    for r in rows:
+        comps = r["components"] or {}
+        item = m.GateDecisionItem(
+            entity_id=r["entity_id"],
+            name=r["canonical_name"],
+            entity_type=r["entity_type"],
+            category=r["category"],
+            decision=r["decision"],
+            score=_f(r["score"]) or 0.0,
+            components=m.GateComponents(**{k: comps.get(k) for k in m.GateComponents.model_fields}),
+        )
+        if r["decision"] == "pass":
+            passed.append(item)
+        else:
+            suppressed.append(item)
+            if comps.get("reason") == "unmapped_reach" and r["category"]:
+                map_gaps[r["category"]] = map_gaps.get(r["category"], 0) + 1
+
+    weeks = [
+        _iso_week(w)
+        for w in session.execute(
+            text("SELECT DISTINCT week FROM gate_decisions ORDER BY week DESC")
+        ).scalars()
+    ]
+    return m.GateWeekResponse(
+        week=week_start,
+        briefs_budget=settings.briefs_per_week,
+        passed=passed,
+        suppressed=suppressed,
+        map_gaps=dict(sorted(map_gaps.items(), key=lambda x: -x[1])),
+        available_weeks=weeks,
     )
 
 

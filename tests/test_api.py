@@ -178,6 +178,67 @@ def test_search_finds_by_trigram(clean_db: Session) -> None:
     assert any(h["name"] == "vllm-project" for h in hits)
 
 
+def test_gate_week_audit(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    winner = _entity(session, "rocket", created=t0, category="model-efficiency")
+    gap = _entity(session, "hypey", created=t0, category="prompt-tooling")
+    week = "2026-07-06"  # a Monday → ISO 2026-W28
+
+    def _decision(eid: int, decision: str, score: float, comps: dict) -> None:
+        session.execute(
+            text(
+                "INSERT INTO gate_decisions (entity_id, week, decision, score, components)"
+                " VALUES (:e, :w, :d, :s, CAST(:c AS JSONB))"
+            ),
+            {"e": eid, "w": week, "d": decision, "s": score, "c": _json(comps)},
+        )
+
+    _decision(
+        winner,
+        "pass",
+        0.42,
+        {
+            "M": 0.7,
+            "R": 1.0,
+            "N": 0.6,
+            "score": 0.42,
+            "peak_state": "breakout",
+            "category": "model-efficiency",
+            "reach_lines": 3,
+            "reach_core": True,
+        },
+    )
+    _decision(
+        gap,
+        "suppressed",
+        0.0,
+        {
+            "M": 0.7,
+            "R": 0.0,
+            "N": 0.3,
+            "score": 0.0,
+            "peak_state": "breakout",
+            "category": "prompt-tooling",
+            "reach_lines": 0,
+            "reason": "unmapped_reach",
+        },
+    )
+    session.flush()
+
+    d = _client(session).get("/gate/2026-W28").json()
+    assert d["briefs_budget"] == 5
+    assert [p["name"] for p in d["passed"]] == ["rocket"]
+    assert d["passed"][0]["components"]["R"] == 1.0
+    assert [s["name"] for s in d["suppressed"]] == ["hypey"]
+    assert d["suppressed"][0]["components"]["reason"] == "unmapped_reach"
+    assert d["map_gaps"] == {"prompt-tooling": 1}
+    assert "2026-W28" in d["available_weeks"]
+
+    # 'current'/'latest' resolves to the most recent week that has decisions.
+    assert _client(session).get("/gate/latest").json()["week"] == week
+
+
 def test_queue_and_merge_decision(clean_db: Session) -> None:
     session = clean_db
     t0 = datetime(2024, 1, 1, tzinfo=UTC)

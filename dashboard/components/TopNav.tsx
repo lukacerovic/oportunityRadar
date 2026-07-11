@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const NAV = [
   { href: "/", label: "Radar" },
+  { href: "/gate/current", label: "Gate" },
   { href: "/queue", label: "Queue" },
 ];
 

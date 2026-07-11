@@ -106,3 +106,35 @@ export interface HealthResponse {
   ok: boolean;
   checks: { name: string; ok: boolean; detail: string }[];
 }
+
+export interface GateComponents {
+  M: number | null;
+  R: number | null;
+  N: number | null;
+  score: number | null;
+  peak_state: string | null;
+  p_peak: number | null;
+  category: string | null;
+  reach_lines: number | null;
+  reach_core: boolean | null;
+  reason: string | null;
+}
+
+export interface GateDecisionItem {
+  entity_id: number;
+  name: string;
+  entity_type: string;
+  category: string | null;
+  decision: string;
+  score: number;
+  components: GateComponents;
+}
+
+export interface GateWeekResponse {
+  week: string;
+  briefs_budget: number;
+  passed: GateDecisionItem[];
+  suppressed: GateDecisionItem[];
+  map_gaps: Record<string, number>;
+  available_weeks: string[];
+}

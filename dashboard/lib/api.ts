@@ -1,5 +1,6 @@
 import type {
   EntityDossier,
+  GateWeekResponse,
   HealthResponse,
   QueueItem,
   RadarResponse,
@@ -39,6 +40,10 @@ export function getQueue(): Promise<QueueItem[]> {
 
 export function getHealth(): Promise<HealthResponse> {
   return get<HealthResponse>(`/health`, 30);
+}
+
+export function getGate(week: string): Promise<GateWeekResponse> {
+  return get<GateWeekResponse>(`/gate/${encodeURIComponent(week)}`, 300);
 }
 
 export const API_BASE = BASE;

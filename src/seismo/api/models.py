@@ -138,3 +138,43 @@ class DecisionResult(BaseModel):
     id: int
     status: str
     merged: bool
+
+
+# --- significance gate (doc 07 §3 — the audit page) -------------------------
+
+
+class GateComponents(BaseModel):
+    """The M×R×N breakdown stored on a `gate_decisions` row — why it passed or was suppressed."""
+
+    M: float | None = None
+    R: float | None = None
+    N: float | None = None
+    score: float | None = None
+    peak_state: str | None = None
+    p_peak: float | None = None
+    category: str | None = None
+    reach_lines: int | None = None
+    reach_core: bool | None = None
+    reason: str | None = None  # unmapped_reach | card_pending | budget (suppressed only)
+
+
+class GateDecisionItem(BaseModel):
+    entity_id: int
+    name: str
+    entity_type: str
+    category: str | None
+    decision: str  # pass | suppressed
+    score: float
+    components: GateComponents
+
+
+class GateWeekResponse(BaseModel):
+    """One week's gate audit (doc 07 §3): the passed list, the suppressed list with reasons, and
+    the map-gaps that unmapped-reach suppressions rolled up into."""
+
+    week: date
+    briefs_budget: int
+    passed: list[GateDecisionItem]
+    suppressed: list[GateDecisionItem]
+    map_gaps: dict[str, int]
+    available_weeks: list[str]  # ISO weeks that have decisions, newest first (for navigation)
