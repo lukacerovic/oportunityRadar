@@ -321,3 +321,34 @@ expected). **Reference — the original NEXT plan (now built):**
 5. Then Stage 7 dashboard: `/gate/[week]` page (passed + suppressed lists), then the impact brief (LLM checkpoint 2, doc 08 §2 — new contract in `checkpoints/contracts.py`).
 
 **Gotchas:** (a) the gate is deterministic — **no LLM** (DR-07.1); the model only writes the brief *after* the gate. (b) `R=0` excludes *before* scoring, not a floor (A-6). (c) provisional/cold-start entities never earn a brief (doc 14 §5) even if `accelerating`. (d) with everything currently `dormant`, the live gate passes nobody until momentum accrues — test the gate on synthetic/hindcast momentum rows, not the current dev DB. (e) the exposure-map figures are placeholders — don't cite them as real financials.
+
+---
+
+## 18. Backlog / noted follow-ups (not blocking)
+
+Recorded from the first real daily-heartbeat run (`./scripts/daily.sh`, 2026-07-11). Neither is
+urgent; both improve signal quality.
+
+1. **More tracked sources — HF + PyPI (usage evidence, A-5 / Wave 2).** Today only **GitHub** has a
+   live `track` loop: `collectors/targets.py::_SOURCE_REGISTRY = {"github": "github"}`. arXiv and HN
+   are point-in-time (a paper/story is captured once at discovery — nothing to re-poll), so momentum
+   in v1 rides on **gh_stars velocity + hn_points_7d (rolling) + evidence_breadth**. To add
+   multi-source corroboration, build **HF** (model download counts) and **PyPI** (package downloads)
+   *tracking* collectors → add their registry to `_SOURCE_REGISTRY` → fill the `hf_downloads_30d` /
+   `pypi_downloads_7d` metrics (already scaffolded as `level`-type in `trajectory/metrics.py` but
+   never populated). **Gotcha:** HF `downloads` is a 30-day rolling *level*, not a counter — never
+   diff it. This lifts the `BREAKOUT_MIN_BREADTH` bar to a real ≥2-type corroboration and is part of
+   A-5 (which also promotes a pricing watcher into v1).
+
+2. **Seed org-anchors waste track budget (data-quality fix).** The first daily `track` polled 1500
+   targets but produced only **434 snapshots** — most misses are seed entries anchored on a github
+   **org handle** (e.g. `deepseek-ai`) rather than a repo (`deepseek-ai/DeepSeek-V2`), so
+   `GET /repos/{org}` 404s (skipped, harmless, but it consumes rate budget + `--limit` slots that
+   yield nothing). Quick fix: in `select_targets`, only return github anchors that look like
+   `owner/repo` (`native_id LIKE '%/%'`) so org handles aren't polled as repos; or split org anchors
+   into a `github_org` registry. Org entities still matter for identity/references — this only
+   changes what gets *deep-polled for stars*.
+
+**Also still open from earlier (unchanged):** `retier` (A-4, bound the ~9000-entity active set so
+`track` covers the *right* repos, not just an id-ordered slice); DeepSeek **H1/H2** hindcast
+(`backfill-stars`); dashboard `/gate/[week]` page; then **Stage 7** impact brief (LLM checkpoint 2).
