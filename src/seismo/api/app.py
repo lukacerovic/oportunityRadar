@@ -25,7 +25,9 @@ from seismo.health import run_checks
 app = FastAPI(title="Seismograph API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
+    # The configured prod origin, plus any localhost port (Next dev may land on 3000/3001/…).
     allow_origins=[settings.dashboard_origin],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_methods=["*"],
     allow_headers=["*"],
 )
