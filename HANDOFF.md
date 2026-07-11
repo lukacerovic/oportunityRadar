@@ -2,8 +2,8 @@
 
 *Single entry point for any new/compacted session. Read this first. `idea_documentation/technical/seismograph-13-corrections-and-decisions.md` is AUTHORITATIVE on any conflict with other docs. All design lives in `idea_documentation/`; all build state is in git.*
 
-**Last updated: Stage 5 Dashboard v0 landed** — Stages 0–5 done (Foundation, Observation, Identity, Trajectory, Comprehension, Dashboard) + cold-start tracking/sweep/backfill commands. Migrations 0001–0003. FastAPI API (`seismo serve`) + Next.js dashboard (`dashboard/`, dark Meridian palette). `SEISMO_GITHUB_TOKEN` set; LLM provider still `mock`. **Next: `ollama pull qwen2.5:7b-instruct` + `SEISMO_LLM_PROVIDER=ollama` for real cards, then Stage 6 Significance (needs the exposure-map slice first, A-1) — see §15.**
-**To resume:** "Read HANDOFF.md and continue the Seismograph build."
+**Last updated: Stage 5 shipped + first real-data run.** Stages 0–5 done (Foundation, Observation, Identity, Trajectory, Comprehension, Dashboard). Migrations 0001–0003. FastAPI API (`seismo serve`) + Next.js dashboard (`dashboard/`, dark Meridian palette) both run and render live data. **Now running on real data:** `SEISMO_GITHUB_TOKEN` set; **LLM provider = `ollama` (model `llama3.2:latest`)**; the **180-day sweep ran** → dev DB has **~11,056 entities** (was 1,366), **41 have real ollama cards**, 1,067 repo_snapshots, 6 queue pairs. Everything still `dormant` (momentum needs ~a week of daily `track`). **IMMEDIATE next task (user-requested): enrich comprehension packs with repo READMEs so cards are richer — see §16.** Then Stage 6 Significance (blocked on the A-1 exposure-map slice).
+**To resume:** "Read HANDOFF.md and continue the Seismograph build." **The single most important next action is §16 (README enrichment).**
 
 ---
 
@@ -47,10 +47,10 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 | 0 — Foundation | ✅ | `6946b15` |
 | 1 — Observation | ✅ | `24e4bef` |
 | 2 — Identity (migration 0002, R1–R6, merges, queue, vocab) | ✅ core | `a51b0d1` `5eba2d4` `35fc4f7` |
-| **1.5 — Cold-start (seed done; sweep left, warm-up now built)** | 🟡 **IN PROGRESS** | `35fc4f7` |
-| 3 — Trajectory (snapshot + score engine; live H1 needs sweep) | ✅ core | _prior session_ |
-| 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | _prior session_ |
-| 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | _this session_ |
+| 1.5 — Cold-start (seed + **180-day sweep RAN**; warm-up built) | ✅ core | `35fc4f7` + sweep run |
+| 3 — Trajectory (snapshot + score engine; live H1 needs star history) | ✅ core | `3c46cc1` `dc581ec` |
+| 4 — Comprehension (LLM checkpoint 1; mock/ollama/anthropic) | ✅ core | `95f1738` |
+| 5 — Dashboard v0 (FastAPI API + Next.js UI) | ✅ core | `b005474` `6074159` |
 | 6 — Significance (needs exposure-map slice first, A-1) | ⬜ | — |
 | 7 — Impact | ⬜ | — |
 | 8 — Memory & scoring | ⬜ | — |
@@ -61,7 +61,7 @@ Python 3.12 (uv) · PostgreSQL 16+ (JSONB + window functions + pg_trgm) · SQLAl
 **Stage 1:** collector framework (dedupe via `RETURNING`, `collector_runs` health, failure isolation), GitHub/HN/arXiv collectors, GH Archive backfill (`origin='backfill'`), CLI `collect`, systemd timer. Idempotency live-proven (hn 193→0, arxiv 293→0). ~486 real events in dev DB.
 **Stage 2 (this session):** migration 0002 (as-of entity graph: `entity_merges`, `entity_category_history`, `entity_links.evidence_occurred_at`, `entity_themes.effective_at`, `entities.tracking_tier`). `canonical_entity_id(session,id,as_of)` + `category_asof()` recursive-CTE helpers in `db.py`. **Graph-purity test green** (future/inactive/transitive/category). Resolution engine (`identity/{normalize,anchors,vocab,resolve}.py`): attachment → R1–R3 auto-merge (reversible, both-endpoints-canonicalized) / R4–R5 queue / R6 audit link; deterministic category (30-slug YAML) + theme (15 YAML). `seismo resolve [--cold-start]`. **DeepSeek DoD proven in tests** (paper+github+hf → one entity via R1/R2). Live: 396 events → 392 entities, idempotent.
 **Stage 1.5 (this session):** `seed/seed_entities.yaml` (143 entities, every category) + `seismo seed-load` (idempotent, `origin='seed'`, load-date `occurred_at` so no hindcast pollution). `--cold-start` defers R4–R6 to `deferred_coldstart`. Live: dev DB now **535 entities**; second resolve is a clean no-op. **40 tests green.** (Do not `alembic downgrade` a DB with data — it drops `entity_category_history`; regenerate via `UPDATE entities SET category=NULL` + re-resolve.)
-**Stage 3 — Trajectory (this session):** full engine in `src/seismo/trajectory/{metrics,cohorts,velocity,ladder,states,score}.py`, no migration (tables exist from 0001). `seismo snapshot [--as-of]` rebuilds `entity_metrics_daily` from `*_snapshot`/story events — counters (`gh_stars/forks`, ff≤3d), levels (`hf_downloads_30d`/`pypi_downloads_7d`, never filled), rolling (`hn_points_7d`), derived `evidence_breadth`. `seismo score [--as-of]` runs maturity ladder → velocity 7-day-change → **cohort percentiles (as-of correct, Python-ranked over `canonical_entity_id`+`category_asof`+first-evidence age)** → momentum states with hysteresis (2-day promote / 7-day demote / fading) + **cold-start provisional cap at `simmering`** (doc 14 §5). Writes full replayed history `[first_seen..as_of]` per run (upsert). **54 tests green** incl. as-of-purity (score twice = identical, future events invisible) and a synthetic riser→breakout vs flat cohort. **Live H1 (DeepSeek reaches accelerating/breakout on backfill) is still BLOCKED on the 180-day sweep, which is blocked on `SEISMO_GITHUB_TOKEN`** — on the current dev DB every entity is `dormant` because there are no participation/usage `*_snapshot` events yet (attention/`hn_points` is excluded from composite P by design). Engine proven on synthetic cohorts; awaiting real snapshot metrics.
+**Stage 3 — Trajectory (this session):** full engine in `src/seismo/trajectory/{metrics,cohorts,velocity,ladder,states,score}.py`, no migration (tables exist from 0001). `seismo snapshot [--as-of]` rebuilds `entity_metrics_daily` from `*_snapshot`/story events — counters (`gh_stars/forks`, ff≤3d), levels (`hf_downloads_30d`/`pypi_downloads_7d`, never filled), rolling (`hn_points_7d`), derived `evidence_breadth`. `seismo score [--as-of]` runs maturity ladder → velocity 7-day-change → **cohort percentiles (as-of correct, Python-ranked over `canonical_entity_id`+`category_asof`+first-evidence age)** → momentum states with hysteresis (2-day promote / 7-day demote / fading) + **cold-start provisional cap at `simmering`** (doc 14 §5). Writes full replayed history `[first_seen..as_of]` per run (upsert). **54 tests green** incl. as-of-purity (score twice = identical, future events invisible) and a synthetic riser→breakout vs flat cohort. **Live momentum status:** token set + sweep ran + heartbeat produced 1,067 `repo_snapshot`s, but every entity is still `dormant` because velocity needs **≥2 snapshots ~7 days apart** (we have ~1 day). This resolves with *time* (daily `track`), not code. **DeepSeek H1** (accelerating/breakout on backfill) still open — needs the heavy GH Archive `backfill-stars`. Engine proven on synthetic cohorts.
 **Stage 1.5 tracking (prior + this session):** `seismo track --source github` (systemd `seismo-track`, 06:00 UTC) polls active/unmerged github-anchored entities → `repo_snapshot`. `collectors/targets.py::select_targets`. `track()` isolates **per-target** 404/451 (attrition) AND transient `httpx.TransportError` (one disconnect over ~1,000 sequential polls used to zero the whole ~35-min batch). `seismo sweep --days N` (cold-start discovery loop) + `seismo backfill-stars --since --until [--repos]` (GH Archive `repo_star`→cumulative `gh_stars`, HEAVY). `SEISMO_GITHUB_TOKEN` is set.
 **Stage 4 — Comprehension (this session):** LLM checkpoint 1 in `src/seismo/checkpoints/{contracts,llm,evidence,comprehend}.py`. **Migration 0003** adds `comprehension_cards.status` (ok|pending|failed) + `pack_version`. Pluggable provider (A-13): **`mock`** (returns a deterministic rule-derived fallback card, dev/CI = $0), `ollama` (REST, `format`=tool schema), `anthropic` (forced tool call, **no `temperature`** — current models reject it; model from `SEISMO_MODEL_LIVE`/`_HINDCAST`). `contracts.ComprehensionCard` constrains category/maturity to the controlled vocab (`vocab.category_slugs()`, `ladder.MATURITY_STAGES`); `card_tool_schema()` injects the enums. `evidence.build_evidence_pack` is pure/versioned (`PACK_VERSION=1`)/bounded (~12k tok); nothing outside the pack reaches the model. `comprehend.run_comprehend` = trigger policy (DR-05.3: survived-7d+breadth≥2 / promotion-since-card / stale+simmering) → validate-with-one-retry (DR-05.2) then `failed` → versioned store (§5) → **category-disagreement flag** (`card.category_disputed`, never overwrites the rule category) → **budget→`pending`** without calling (A-12). `seismo comprehend [--as-of --entity --limit]`. **70 tests green.** Live-proven at $0 (`comprehend --entity` → valid card). **DoD "50 live cards / 20-card review ≥85% / median ≤$0.03/card" needs a real ollama (`ollama pull qwen2.5:7b-instruct`) or anthropic run** — machinery done, only the spend/eval left. (Only place `anthropic` may be imported is `checkpoints/llm.py` — invariant 3.)
 **Stage 5 — Dashboard v0 (this session):** two codebases. **`src/seismo/api/`** = FastAPI read+curation API (the *only* door to the graph; every read takes `?as_of=`): `GET /health /radar /entities/{id} /queue /search` + `POST /merge-queue/{id}/decision` (bearer-gated, DR-10.2; merge appends a reversible `entity_merges` human row). Pydantic models throughout (`api/models.py`) → OpenAPI → TS client. `seismo serve` (uvicorn); config `api_token` + `dashboard_origin` (CORS). **`dashboard/`** = Next.js 14 App Router + Tailwind, **dark "Meridian" palette** (tokens in `tailwind.config.ts`/`globals.css`; teal accent, emerald positive, amber warn; momentum 5-scale is the one place hue = meaning). Views: `/` Radar (momentum→velocity grid, StateChip + SVG sparkline + card one-liner, state filter), `/entity/[id]` Dossier (header+registries, KPI row, CardPanel rendered like the reference AI-summary = thesis vs open-questions, SVG MetricChart w/ promotion dots, MaturityLadder), `/queue` (keyboard M/N/S triage). Charts are hand-rolled SVG (no Recharts) to stay dependency-light. **5 API tests (75 total); `next build` green (TS strict, 4 routes).** Verified end-to-end vs `seismo serve` on the dev DB: Radar renders 240 entities, Dossier renders the card+ladder+KPIs, Queue renders triage. **Run:** `uv run seismo serve` + (in `dashboard/`) `npm install && npm run dev`. `dashboard/node_modules` is git-ignored. Briefs/gate/map/review pages are Stage 7–8 adds.
@@ -91,13 +91,13 @@ src/seismo/
 dashboard/           Next.js 14 app (App Router, Tailwind, Meridian palette) ← Stage 5 UI; node_modules git-ignored
   identity/          normalize.py anchors.py vocab.py resolve.py seed.py  ← Stage 2/1.5
   trajectory/        metrics.py cohorts.py velocity.py ladder.py states.py score.py  ← Stage 3
-  significance/ memory/ api/ hindcast/   empty (their stages)
+  significance/ memory/ hindcast/   empty (their stages)
 alembic/versions/0001_core_schema.py    schema source of truth
 alembic/versions/0002_asof_entity_graph.py   as-of graph + tracking_tier (A-2/A-4)
 alembic/versions/0003_card_status.py         comprehension_cards.status + pack_version (A-12)
 seed/categories.yaml themes.yaml seed_entities.yaml   vocab + day-1 universe
-tests/               test_asof, test_config, test_invariants, test_collectors, conftest (db_session)
-deploy/systemd/      seismo-collect-fast.{service,timer} + deploy/README.md
+tests/               test_asof/config/invariants/collectors/graph_purity/trajectory/comprehension/targets/api + conftest (db_session, clean_db)
+deploy/systemd/      seismo-collect-fast.{service,timer} + seismo-track.{service,timer} + README.md
 scripts/check_llm_import.sh   invariant-3 grep
 seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 .github/workflows/ci.yml      ruff+format+mypy+invariant+migrate+doctor+pytest
@@ -110,7 +110,8 @@ seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 ## 7. Environment (this machine)
 
 - **Postgres 17.9** on `localhost:5432`. OS superuser `lukacerovic` (local trust auth). App role **`seismo`**/pw `seismo`, db **`seismograph`**, `pg_trgm` installed.
-- **`.env`** (git-ignored): `SEISMO_DATABASE_URL=…`, `SEISMO_LLM_PROVIDER=mock`, **`SEISMO_GITHUB_TOKEN` is set** (classic PAT, public scope — lifts Search API rate limit + enables `track`).
+- **`.env`** (git-ignored): `SEISMO_DATABASE_URL=…`, **`SEISMO_LLM_PROVIDER=ollama`**, **`SEISMO_OLLAMA_MODEL=llama3.2:latest`** (only model pulled; config default is `qwen2.5:7b-instruct` — pull it for better cards), **`SEISMO_GITHUB_TOKEN` set** (classic PAT, public scope). CI/tests still default to `mock` ($0) via conftest. **Ollama runs via the macOS app** (`ollama serve`, PID auto-started, `:11434`) — keep the app open for `comprehend`.
+- **Dev DB data state (post-sweep):** ~11,056 entities (8,998 github-anchored), 41 ollama cards, 1,067 repo_snapshots, 6 queue pairs. All entities `dormant` (no star time-series yet). This is committed data in the shared dev DB — count-asserting tests must use the `clean_db` fixture.
 - **Python 3.12** via uv 0.8.x. **Network works from Bash** (used it to test collectors live).
 - **Git repo, committing to `main`, no remote.** Solo linear build. Scratchpad for temp files: `/private/tmp/claude-501/-Users-lukacerovic-Desktop-OportunityRadar/<session>/scratchpad`.
 - Convention: end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
@@ -121,12 +122,21 @@ seed/ exposure_map/  empty (.gitkeep) — filled in cold-start / Stage 7
 uv sync
 uv run alembic upgrade head
 uv run seismo doctor                 # all green expected
-uv run pytest -q                     # 60 passing, mock LLM, $0
+uv run pytest -q                     # 75 passing, mock LLM, $0
 uv run ruff check && uv run ruff format --check && uv run mypy src
 bash scripts/check_llm_import.sh
+# daily pipeline:
 uv run seismo collect --source fast --window 1d   # live discovery (github token set)
 uv run seismo track  --source github              # daily repo_snapshot (heartbeat)
+uv run seismo resolve                             # attach new events → entities/merges
 uv run seismo snapshot && uv run seismo score     # trajectory: metrics → momentum states
+uv run seismo comprehend                          # LLM cards for trigger-eligible entities (ollama)
+# one-offs:
+uv run seismo sweep --days 180                    # cold-start discovery over past windows (ALREADY RAN)
+uv run seismo comprehend --entity <id>            # force a card for one entity (bypasses trigger)
+# app (two terminals + Ollama app open):
+uv run seismo serve                               # API :8000
+cd dashboard && npm install && npm run dev        # dashboard :3000  (restart API after code edits — no hot-reload)
 ```
 
 ## 9. Config keys (doc 13 Part C) — `SEISMO_` prefix
@@ -209,19 +219,24 @@ Then `canonical_entity_id(entity_id, as_of)` (recursive CTE over `entity_merges`
 - **`track()` isolates per-target 404/451 AND transient `httpx.TransportError`** — a deleted/renamed/private repo (attrition) OR one network disconnect over the ~1,000 sequential polls used to zero the whole ~35-min batch (found live twice: a 404, then a `RemoteProtocolError`). Both now skip that one target and continue; a real outage skips them all → `events_new=0` for monitoring. Systemic HTTP status errors (403 rate-limit, 5xx) still raise and fail the run.
 - **Two sources feed `gh_stars`** — live `repo_snapshot` (absolute level) and backfilled `repo_star` (cumulative count within the GH Archive window). Velocity (7-day *change*) is correct from either; the seam where they meet (live snapshots right after a historical backfill) shows an absolute-vs-window jump — harmless because a hindcast at a past `as_of` sees only backfill. Snapshot upsert dedups `(entity,metric,day)`.
 - **`gh_stars` needs a time series** — a single `track` run is one data point; velocity needs ~2 snapshots ≥7 days apart. The dev DB is all-`dormant` until either the heartbeat accumulates days or `backfill-stars` reconstructs history.
+- **Comprehension packs are THIN for swept repos** → cards read terse. The discovery `repo_discovered` payload has only the GitHub *description* (one sentence + topics), **not the README body**. `build_evidence_pack` for such a repo is ~880 chars, so the model (told "use ONLY the pack") can only rephrase the tagline. **The fix is §16 (fetch READMEs)**, not a bigger model or prompt tweak. Inspect any pack: `uv run python -c "from datetime import*;from seismo.db import session_scope;from seismo.checkpoints.evidence import build_evidence_pack; s=session_scope().__enter__(); print(build_evidence_pack(s,<id>,datetime.now(UTC)).markdown)"`.
+- **Radar cold-start ordering** (`29d1fed`): when momentum is uniform (all dormant), the API's `/radar` sorts by `state → velocity → has-card → newest-created → id`, so swept repos + carded entities surface instead of low-id arXiv papers. Revisit if this masks something once momentum is live.
+- **CORS is localhost-port-agnostic** (`f201e96`): API allows `http://(localhost|127.0.0.1):\d+` so `/queue` client-fetch works whether Next lands on 3000 or 3001. The API has **no hot-reload** — restart `seismo serve` after editing `api/`.
+- **Leftover servers hold ports** — `seismo serve` runs as a `python` process (not literally `uvicorn`); `pkill -f uvicorn` misses it. Free a port with `lsof -ti tcp:8000 | xargs kill`.
+- **`sweep` discovery events carry historical `occurred_at`** (repo creation date, spread over the window) — good for entity age/cohorts, but it means most swept repos have **1 evidence type** so `comprehend`'s auto-trigger (breadth≥2) skips them; that's why cards were generated by forcing `--entity` on the top-by-stars repos.
 
-## 15. NEXT — light up real data, then Stage 6 Significance
+## 15. NEXT — enrich cards (§16), let momentum accrue, then Stage 6
 
-**Done this session (✅):** **Stage 5 Dashboard v0** — FastAPI read+curation API (`src/seismo/api/`, `seismo serve`) + Next.js dashboard (`dashboard/`, dark Meridian palette: Radar / Dossier / Queue). **75 tests; `next build` green; verified end-to-end vs the dev DB.** Prior this session: Stage 4 Comprehension + tracking resilience.
+**Done this session (✅):** Stage 5 Dashboard (API + Next.js UI). Plus the **first real-data run**: added `SEISMO_GITHUB_TOKEN`; switched provider to **ollama/llama3.2**; ran the **180-day `sweep`** (1,366 → 11,056 entities); ran the **heartbeat** (`track` → 1,062 repo_snapshots, after fixing a transient-error abort); **generated 41 ollama cards** (the original + top-40 repos by stars, forced via `--entity`); shipped the **radar cold-start ordering** (`29d1fed`) and **localhost CORS** (`f201e96`) fixes. The dashboard now shows a real browsable frontier.
 
-**Run the app:** `uv run seismo serve` (API on :8000) + in `dashboard/` `npm install && npm run dev` (UI on :3000). Point at a non-default API with `SEISMO_API_BASE`.
+**Run the app:** Ollama app open → `uv run seismo serve` (:8000) → `cd dashboard && npm run dev` (:3000/3001). Point at a non-default API with `SEISMO_API_BASE`. **Restart the API after editing `api/`** (no hot-reload).
 
-**Stage 5 DoD (doc 10 §4) status:** Radar+Dossier+`/queue` render live data ✅ · keyboard triage ✅ · **TS client generated from OpenAPI (CI regen+diff) ⬜** (types are hand-written in `dashboard/lib/types.ts` for v0; wire `openapi-typescript` when convenient) · **Recharts ⬜** (v0 uses hand-rolled SVG; swap in Recharts if richer interactivity is wanted) · morning-coffee test ⬜ (needs real data).
+**Immediate next task → §16 (README enrichment).** The user's live feedback: cards are accurate but **too short**, because packs contain only the GitHub one-line description, not the README. §16 is the plan to fix it.
 
-**The whole stack is built; what's left is feeding it real data + the next analytical stage:**
-1. **Real cards (Stage 4 DoD) + make the dashboard sing:** `ollama pull qwen2.5:7b-instruct`, `SEISMO_LLM_PROVIDER=ollama`, then `seismo comprehend --entity <id>` (or run the sweep first so the trigger picks more). Cards immediately show in the Dossier's CardPanel. Grade ~20 A/B/F.
-2. **Live momentum:** heartbeat `seismo track` daily → real `gh_stars` velocity over ~8 days → Radar lights up beyond dormant. DeepSeek H1 = heavy GH Archive `backfill-stars` (Stage 3 tail, still open).
-3. **Cold-start sweep:** `seismo sweep --days 180` (Search API, ~minutes–1hr) → cohort mass + more comprehension candidates.
+**Then, in rough order:**
+1. **Live momentum:** run `seismo track` daily (systemd `seismo-track` on a server) → real `gh_stars` velocity over ~8 days → run `snapshot`+`score` → Radar shows Simmering/Accelerating/Breakout instead of all-dormant. This needs *time*, not code.
+2. **Stage 4 DoD grade:** once cards are enriched (§16), grade ~20 A/B/F; optionally `ollama pull qwen2.5:7b-instruct` (set `SEISMO_OLLAMA_MODEL` back to it) for better prose.
+3. **DeepSeek H1** (Stage 3 tail): heavy GH Archive `backfill-stars --repos deepseek-ai` → resolve → snapshot/score `--as-of 2024-05-31`. Hundreds of GB; run once when doing hindcast validation.
 4. **Queue-precision ≥80%** (Stage 2 tail) · **`seismo retier`** (A-4) — low priority.
 
 **Then Stage 6 — Significance (doc 07):** the deterministic gate that picks ≤5 briefs/week. **BLOCKER A-1:** build the exposure-map loader + `reach_links` + the minimal 8-company slice (`exposure_companies`/`reach_links` tables exist, empty) *before* the gate. Gate never briefs on a `pending` card (A-12); `R=0` = hard exclusion → map-gaps (A-6). Provisional/cold-start entities excluded from the candidate set (doc 14 §5). Then the gate audit page (`/gate/[week]`) + brief pages are Stage 7's dashboard adds.
@@ -231,3 +246,23 @@ Then `canonical_entity_id(entity_id, as_of)` (recursive CTE over `entity_merges`
 **Comprehension gotchas (still current):** (a) `mock` returns the deterministic *fallback* card (rule category + "not established by evidence" text) — real content needs ollama/anthropic. (b) The model's `category` is a **proposal**: stored as `card.category` + `card.category_disputed`, but `entity_category_history` (the deterministic category) is never touched. (c) budget is a **calendar-month** sum of `cost_usd`; `pending` cards (A-12) carry the fallback card + `status='pending'` and cost 0. (d) forcing `--entity` bypasses the trigger and always appends a new version. (e) `anthropic` path sends **no `temperature`** (rejected by current models) and needs `SEISMO_MODEL_LIVE` set or it raises.
 
 **Trajectory gotchas (still current):** (a) `score` writes the **whole replayed history** `[first_seen..as_of]` each run and a later `as_of` rewrites recent days — expected for a daily heartbeat, still pure per `as_of`. (b) Cohort membership is evaluated once at the run's `as_of` (velocities are per-day) — a deliberate, documented simplification that keeps `score --as-of D` a pure function of events ≤ D. (c) `evidence_breadth` needs ≥2 evidence *types* for a `breakout` (A-5, `BREAKOUT_MIN_BREADTH=2`); a github-only entity tops out below breakout no matter how fast it rises. (d) percentile ranking is done in Python (not SQL `percent_rank`) because cohort membership is as-of-dependent; the heavy 7-day window is still set-wise.
+
+---
+
+## 16. IMMEDIATE TASK — enrich comprehension packs with repo READMEs
+
+**Why:** User feedback on live cards — accurate but **too short**. Root cause (verified, not guessed): the evidence pack for a swept GitHub repo is ~880 chars because it contains only the GitHub *description* (one sentence + topic list), **no README body**. The system prompt forbids outside knowledge, so the model can only rephrase the tagline. Bigger models / prompt tweaks won't help — the **input** is thin. Fix = put the README in the pack.
+
+**Architectural fit (respect invariant 4: collectors fetch, checkpoints never fetch).** Do NOT fetch inside `build_evidence_pack`. Instead: a collector fetches the README and records it as a raw event; `resolve` folds its text into `entities.attrs['text']`; the pack builder already reads `attrs['text']` (truncated to 4k, doc 05 §2). So:
+
+1. **Collector** — add `GitHubCollector.readme(full_name)` → `GET https://api.github.com/repos/{full_name}/readme` with `Accept: application/vnd.github.raw` (or default + base64-decode `content`); on 404 return None. Emit a new event: `event_type='repo_readme'`, `source='github'`, `source_event_uid=f"repo_readme:{repo_id}"` (idempotent), `payload={'full_name':…, 'text': readme[:20000]}`. Reuse the 2s `RateLimiter`. Isolate per-target errors like `track()` (404/`TransportError` skip).
+2. **Wire it** — either fold into `track()` (one extra call per repo — but that doubles track's API budget; ~9k repos > 5000/hr so scope to active-tier or a `--limit`), OR a dedicated `seismo enrich-readmes [--limit N]` command over `select_targets(...)`. **Recommended for the immediate win:** a small command that enriches just a target set; run it first on the **41 already-carded repos** (fast, ~41 calls) to prove the quality jump, then broaden.
+3. **`resolve` absorb** — in `identity/resolve.py::_absorb_payload`, add the README field to the text chunks it folds into `attrs['text']` (it already reads `title/description/summary/topics/tags`; add `payload.get('text')` when `event_type=='repo_readme'`, or just include `text`). Keep `_TEXT_CAP=4000`.
+4. **Re-run** for the enriched set: `resolve` → `comprehend --entity <id>` (or plain `comprehend`). Cards should get materially richer (and `open_questions` stops being empty).
+5. **Tests** — mock the README HTTP (like `test_github_track_skips_deleted_repos`): 200 with body → `repo_readme` draft with text; 404 → skipped. Assert `_absorb_payload` folds README text into `attrs['text']` and the pack includes it.
+
+**Complementary (optional):** `ollama pull qwen2.5:7b-instruct` + set `SEISMO_OLLAMA_MODEL=qwen2.5:7b-instruct` — better prose *once the pack has real content*. And note the card schema deliberately caps `what_it_is` ≤60 words (analyst tile, not essay); if the user wants longer prose after enrichment, consider adding a `detail`/`summary` field to `ComprehensionCard` (migration not needed — it's JSONB) + render it in `dashboard/components/CardPanel.tsx`.
+
+**Verify the fix like this (before/after):** print the pack (`build_evidence_pack(s, <id>, now)` — see §14 gotcha) — it should jump from ~880 chars to ~4k with real README content; then the regenerated card should be several sentences of substance rather than a rephrased tagline.
+
+**Watch-outs:** README fetch is 1 API call/repo (rate-limited, 5000/hr authenticated) — don't blast all 9k at once; scope with `--limit`/active-tier. `repo_readme` events get historical-or-now `occurred_at` (use `now` — it's an enrichment, not a discovery); this doesn't affect as-of momentum since README text isn't a metric. Keep `anthropic`/`ollama` out of the collector (invariant 3 is about SDK imports; the collector uses `httpx` — fine).
