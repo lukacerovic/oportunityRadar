@@ -7,10 +7,10 @@
 # never climbs to accelerating/breakout (attention is excluded from the velocity composite,
 # idea-spec principle 3), so it never even becomes a gate candidate.
 #
-# NOTE (loader status, doc 11 §1): the HN (Algolia-historical) and HF loaders are documented gaps.
-# Until they ship this case cannot be replayed on real data — the entity ref will not resolve and the
-# brief_absent / gate assertions pass vacuously. Wire the loaders before treating a green run as
-# meaningful. See HANDOFF.
+# NOTE (loader status, doc 11 §1): the HN attention signal now loads (Algolia is natively
+# historical — the live collector points at the case window). The Hugging Face loader remains a
+# gap, so the `hf:` entity ref does not resolve yet and the momentum/brief_absent assertions pass
+# vacuously until it ships. Wire the HF loader before treating a green run as meaningful. See HANDOFF.
 case: reflection70b
 window: {from: 2024-09-01, to: 2024-09-30}
 

@@ -24,6 +24,7 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from seismo.collectors.base import RawEventDraft, Window
 from seismo.config import settings
 from seismo.hindcast.assertions import AssertionResult, evaluate
 from seismo.hindcast.case import (
@@ -32,6 +33,7 @@ from seismo.hindcast.case import (
     load_case,
     load_case_by_name,
 )
+from seismo.hindcast.loaders import load_arxiv, load_hn
 from seismo.hindcast.runner import run_hindcast
 
 _UID = itertools.count(1)
@@ -529,3 +531,87 @@ def test_runner_brief_step_drafts_and_asserts(clean_db: Session) -> None:
         {"e": eid},
     ).scalar_one()
     assert n == 1
+
+
+# --- case-scoped historical loaders (HN / arXiv) ----------------------------
+
+
+class _FakeHN:
+    """Stands in for HackerNewsCollector — records the window it was asked for."""
+
+    def __init__(self) -> None:
+        self.window: Window | None = None
+
+    def discover(self, window: Window) -> list[RawEventDraft]:
+        self.window = window
+        return [
+            RawEventDraft(
+                source="hn",
+                source_event_uid="story-1",
+                event_type="story",
+                occurred_at=datetime(2024, 9, 15, tzinfo=UTC),
+                payload={"points": 400, "title": "Reflection 70B is the best open model"},
+            )
+        ]
+
+    def track(self, targets: list[object], window: Window) -> list[RawEventDraft]:
+        return []
+
+
+class _FakeArxiv:
+    def __init__(self) -> None:
+        self.ids: list[str] | None = None
+
+    def fetch_ids(self, arxiv_ids: list[str]) -> list[RawEventDraft]:
+        self.ids = arxiv_ids
+        return [
+            RawEventDraft(
+                source="arxiv",
+                source_event_uid=aid,
+                event_type="paper_published",
+                occurred_at=datetime(2024, 5, 6, tzinfo=UTC),
+                payload={"arxiv_id": aid},
+            )
+            for aid in arxiv_ids
+        ]
+
+
+def test_load_hn_points_collector_at_window_and_marks_backfill(db_session: Session) -> None:
+    fake = _FakeHN()
+    win = Window(
+        since=datetime(2024, 9, 1, tzinfo=UTC), until=datetime(2024, 9, 30, tzinfo=UTC)
+    )
+    n = load_hn(db_session, win, collector=fake)
+    db_session.flush()
+    assert n == 1 and fake.window == win  # the loader passed the case window through
+    origin = db_session.execute(
+        text("SELECT origin FROM raw_events WHERE source = 'hn' AND source_event_uid = 'story-1'")
+    ).scalar_one()
+    assert origin == "backfill"  # scope-wipeable on --reload
+
+
+def test_load_arxiv_fetches_seed_ids_and_marks_backfill(db_session: Session) -> None:
+    # A synthetic id — db_session is the shared dev DB, and the real 2405.04434 already lives there
+    # (persist would skip the dupe), so we use an id that never collides.
+    fake = _FakeArxiv()
+    n = load_arxiv(db_session, ["0000.00001"], collector=fake)
+    db_session.flush()
+    assert n == 1 and fake.ids == ["0000.00001"]
+    row = db_session.execute(
+        text("SELECT origin, event_type FROM raw_events WHERE source = 'arxiv' "
+             "AND source_event_uid = '0000.00001'")
+    ).first()
+    assert row is not None and row[0] == "backfill" and row[1] == "paper_published"
+
+
+def test_load_arxiv_empty_is_a_noop(db_session: Session) -> None:
+    assert load_arxiv(db_session, [], collector=_FakeArxiv()) == 0
+
+
+def test_loaders_are_idempotent(db_session: Session) -> None:
+    win = Window(
+        since=datetime(2024, 9, 1, tzinfo=UTC), until=datetime(2024, 9, 30, tzinfo=UTC)
+    )
+    assert load_hn(db_session, win, collector=_FakeHN()) == 1
+    db_session.flush()
+    assert load_hn(db_session, win, collector=_FakeHN()) == 0  # same natural key → no dupe

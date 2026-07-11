@@ -78,25 +78,38 @@ def _weeks(window_from: date, window_to: date) -> list[date]:
 
 
 def default_loader(session: Session, case: Case, warnings: list[str]) -> None:
-    """The real historical loader (doc 11 §1). GitHub star history via the GH Archive firehose is
-    HEAVY (hundreds of GB for a long window) — this is only reached behind ``--reload``. The other
-    sources are documented gaps until their loaders ship; recorded, not silently skipped."""
+    """The real historical loader (doc 11 §1). Only reached behind ``--reload``. Hacker News and
+    arXiv are cheap (natively historical / targeted); GitHub star history via the GH Archive
+    firehose is HEAVY (hundreds of GB for a long window). Sources without a loader are recorded as
+    gaps, not silently skipped."""
     from seismo.collectors.backfill_gharchive import backfill
     from seismo.collectors.base import Window
+    from seismo.hindcast.loaders import load_arxiv, load_hn
 
+    window = Window(since=_end_of_day(case.window.from_), until=_end_of_day(case.window.to))
+
+    # Hacker News — the Algolia API is natively historical, so the live collector is the loader.
+    n_hn = load_hn(session, window)
+    warnings.append(f"Hacker News: loaded {n_hn} historical stories over the case window.")
+
+    # arXiv — targeted fetch of the case's seed papers (discover can't page back to a window).
+    if case.seeds.arxiv:
+        n_arxiv = load_arxiv(session, case.seeds.arxiv)
+        warnings.append(f"arXiv: loaded {n_arxiv} seed paper(s) {case.seeds.arxiv}.")
+
+    # GitHub star history — HEAVY firehose; only worth it for a pinned case.
     if case.seeds.github:
         warnings.append(
             "HEAVY: backfilling GitHub star history from the GH Archive firehose for "
             f"{case.seeds.github} over {case.window.from_}..{case.window.to} — hundreds of GB "
             "for a long window."
         )
-        win = Window(since=_end_of_day(case.window.from_), until=_end_of_day(case.window.to))
         targets = {t.lower() for t in case.seeds.github}
-        n = backfill(win, targets)
+        n = backfill(window, targets)
         warnings.append(f"GH Archive backfill inserted {n} star/discovery events.")
+
     for label, seeds in (
-        ("arXiv (OAI-PMH)", case.seeds.arxiv),
-        ("Hugging Face createdAt", case.seeds.hf_orgs),
+        ("Hugging Face createdAt + downloads", case.seeds.hf_orgs),
         ("Wayback pricing", case.seeds.wayback),
         ("PyPI BigQuery", case.seeds.pypi),
     ):

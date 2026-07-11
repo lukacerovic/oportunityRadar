@@ -76,6 +76,24 @@ class ArxivCollector:
         # citation velocity (Semantic Scholar) is a Wave-3 add; discovery only in v1.
         return []
 
+    def fetch_ids(self, arxiv_ids: list[str]) -> list[RawEventDraft]:
+        """Targeted fetch of specific papers by id — the hindcast seed path (doc 11 §1).
+
+        ``discover`` pages from the newest submissions and so cannot reach an arbitrary historical
+        window; a case, however, pins exact ids, so we jump straight to them via ``id_list``. The
+        returned ``paper_published`` events carry their real ``published`` date, so replay places
+        them in history correctly. Version suffixes are stripped by ``_parse`` (id → bare id)."""
+        if not arxiv_ids:
+            return []
+        self._limiter.wait()
+        params: dict[str, str | int] = {
+            "id_list": ",".join(arxiv_ids),
+            "max_results": len(arxiv_ids),
+        }
+        resp = self._client.get(BASE, params=params)
+        resp.raise_for_status()
+        return [draft for _occurred, draft in self._parse(resp.text)]
+
     def _parse(self, xml_text: str) -> list[tuple[datetime, RawEventDraft]]:
         root = ET.fromstring(xml_text)
         out: list[tuple[datetime, RawEventDraft]] = []

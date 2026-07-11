@@ -192,6 +192,25 @@ def test_arxiv_parses_id_comment_and_window() -> None:
     assert "github.com/deepseek-ai" in d.payload["comment"]
 
 
+def test_arxiv_fetch_ids_targets_by_id_list() -> None:
+    """The hindcast seed path: fetch a specific paper by id (not a windowed discover)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get("id_list") == "2405.04434"
+        return httpx.Response(200, text=_ATOM_FEED)
+
+    drafts = ArxivCollector(client=_client(handler), min_interval_s=0).fetch_ids(["2405.04434"])
+    assert len(drafts) == 1 and drafts[0].source_event_uid == "2405.04434"
+    assert drafts[0].event_type == "paper_published"
+
+
+def test_arxiv_fetch_ids_empty_makes_no_request() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("fetch_ids([]) must not hit the network")
+
+    assert ArxivCollector(client=_client(handler), min_interval_s=0).fetch_ids([]) == []
+
+
 # --- backfill filter (pure) -------------------------------------------------
 
 
