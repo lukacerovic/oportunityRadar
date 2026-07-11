@@ -112,6 +112,53 @@ def test_github_track_skips_transient_network_errors() -> None:
     assert len(drafts) == 1 and drafts[0].payload["stars"] == 12
 
 
+# --- GitHub README enrichment (§16) -----------------------------------------
+
+
+def test_github_readmes_fetch_and_skip_missing() -> None:
+    """A repo with a README yields a repo_readme event; a 404 (no README) skips that target."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "no-readme/repo" in str(request.url):
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(200, text="# Big Model\n\nA long, substantive README body.")
+
+    targets = [
+        TrackTarget(entity_id=1, source="github", native_id="no-readme/repo"),
+        TrackTarget(entity_id=2, source="github", native_id="has/readme"),
+    ]
+    drafts = GitHubCollector(client=_client(handler), min_interval_s=0, token="x").readmes(
+        targets, WINDOW
+    )
+    assert len(drafts) == 1, "the missing-README repo is skipped, the other still enriches"
+    d = drafts[0]
+    assert d.event_type == "repo_readme"
+    assert d.source_event_uid == "repo_readme:has/readme"  # idempotent per repo
+    assert d.payload["full_name"] == "has/readme"
+    assert "substantive README body" in d.payload["text"]
+
+
+def test_github_readmes_skip_transient_and_empty() -> None:
+    """A mid-batch disconnect and an empty README body both skip cleanly."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "flaky/repo" in str(request.url):
+            raise httpx.RemoteProtocolError("server disconnected")
+        if "empty/repo" in str(request.url):
+            return httpx.Response(200, text="   \n  ")
+        return httpx.Response(200, text="real content")
+
+    targets = [
+        TrackTarget(entity_id=1, source="github", native_id="flaky/repo"),
+        TrackTarget(entity_id=2, source="github", native_id="empty/repo"),
+        TrackTarget(entity_id=3, source="github", native_id="good/repo"),
+    ]
+    drafts = GitHubCollector(client=_client(handler), min_interval_s=0, token="x").readmes(
+        targets, WINDOW
+    )
+    assert [d.payload["full_name"] for d in drafts] == ["good/repo"]
+
+
 # --- arXiv parsing ----------------------------------------------------------
 
 _ATOM_FEED = """<?xml version="1.0" encoding="UTF-8"?>

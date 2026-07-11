@@ -80,6 +80,40 @@ def track(
         )
 
 
+@app.command(name="enrich-readmes")
+def enrich_readmes(
+    limit: int = typer.Option(None, help="Cap the number of repos to enrich (rate budget)."),
+    carded_only: bool = typer.Option(
+        False, "--carded-only", help="Only repos that already have a comprehension card (§16 win)."
+    ),
+) -> None:
+    """Enrichment (§16) — fetch repo READMEs as ``repo_readme`` events so comprehension packs are
+    substantial, not just the one-line GitHub description. Fetch is per-repo rate-limited (5000/hr
+    authenticated); scope with ``--limit`` / ``--carded-only`` — do not blast the full universe.
+    Run ``resolve`` then ``comprehend`` after to regenerate the enriched cards."""
+    from seismo.collectors.base import Window
+    from seismo.collectors.github import GitHubCollector
+    from seismo.collectors.runner import persist_drafts
+    from seismo.collectors.targets import select_carded_targets, select_targets
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-readmes"):
+        with session_scope() as session:
+            targets = (
+                select_carded_targets(session, "github", limit=limit)
+                if carded_only
+                else select_targets(session, "github", limit=limit)
+            )
+        # Fetch outside any open transaction (the poll can take minutes over many repos).
+        drafts = GitHubCollector().readmes(targets, Window.last(1.0))
+        with session_scope() as session:
+            new = persist_drafts(session, drafts)
+        typer.echo(
+            f"[enrich-readmes] {len(targets)} repos → {len(drafts)} READMEs, {new} new events "
+            f"(run `seismo resolve` then `seismo comprehend` to regenerate cards)"
+        )
+
+
 @app.command()
 def sweep(
     days: int = typer.Option(None, help="Historical span in days; default COLDSTART_SWEEP_DAYS."),

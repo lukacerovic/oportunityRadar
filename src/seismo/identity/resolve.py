@@ -209,6 +209,10 @@ def _absorb_payload(ent: _Ent, event: RawEvent) -> None:
         " ".join(str(t) for t in (p.get("topics") or [])),
         " ".join(str(t) for t in (p.get("tags") or [])),
     ]
+    # A repo_readme enrichment event (§16) carries the full README body under `text`; fold it in
+    # so build_evidence_pack's Description block (attrs['text'], truncated to 4k) has real content.
+    if event.event_type == "repo_readme" and p.get("text"):
+        chunks.append(str(p["text"]))
     if event.source == "seed" and p.get("category"):
         ent.attrs["seed_category"] = p["category"]
     if event.source == "seed" and p.get("themes"):

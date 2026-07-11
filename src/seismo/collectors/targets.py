@@ -46,3 +46,35 @@ def select_targets(
         for row in session.execute(sql, params)
         if row.native_id
     ]
+
+
+def select_carded_targets(
+    session: Session, source: str, *, limit: int | None = None
+) -> list[TrackTarget]:
+    """Unmerged entities that carry ``source``'s anchor AND already have a comprehension card.
+
+    The immediate-win target set for README enrichment (§16): re-enrich just the handful of repos
+    that already have cards to prove the quality jump before broadening to the full universe.
+    Ignores the tracking tier — a carded entity is worth enriching regardless."""
+    registry = _SOURCE_REGISTRY.get(source)
+    if registry is None:
+        return []
+    sql = text(
+        """
+        SELECT e.id, e.attrs->'anchors'->>:registry AS native_id
+        FROM entities e
+        WHERE e.attrs->'anchors' ? :registry
+          AND e.merged_into IS NULL
+          AND EXISTS (SELECT 1 FROM comprehension_cards c WHERE c.entity_id = e.id)
+        ORDER BY e.id
+        """
+        + ("LIMIT :limit" if limit is not None else "")
+    )
+    params: dict[str, object] = {"registry": registry}
+    if limit is not None:
+        params["limit"] = limit
+    return [
+        TrackTarget(entity_id=row.id, source=source, native_id=row.native_id)
+        for row in session.execute(sql, params)
+        if row.native_id
+    ]

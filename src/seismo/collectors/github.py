@@ -18,7 +18,10 @@ from seismo.config import settings
 
 SEARCH_URL = "https://api.github.com/search/repositories"
 REPO_URL = "https://api.github.com/repos/{full_name}"
+README_URL = "https://api.github.com/repos/{full_name}/readme"
 ACCEPT = "application/vnd.github+json"
+RAW_ACCEPT = "application/vnd.github.raw"  # README endpoint returns the file body verbatim
+README_CAP = 20000  # bounded README body kept on the raw event (pack truncates again to 4k)
 
 # Broad-and-shallow discovery seeds (doc 03 §2.1). Kept small; tuned in config later.
 TOPICS = ["llm", "agents", "rag", "inference", "ai-agents"]
@@ -92,6 +95,45 @@ class GitHubCollector:
             resp.raise_for_status()
             drafts.append(self._snapshot_draft(resp.json()))
         return drafts
+
+    def readmes(self, targets: list[TrackTarget], window: Window) -> list[RawEventDraft]:
+        """Fetch each target's README as a ``repo_readme`` event (enrichment, §16).
+
+        A repo's discovery payload carries only the one-line GitHub *description*, so a swept
+        repo's evidence pack is thin and its card reads terse. The README gives the comprehension
+        checkpoint real substance to work with. Errors are isolated per target exactly like
+        :meth:`track`: a missing README / gone repo (404/451) or a transient disconnect skips that
+        one target instead of aborting the batch. Idempotent — one event per repo (``full_name``).
+        """
+        drafts: list[RawEventDraft] = []
+        for target in targets:
+            self._limiter.wait()
+            headers = self._headers()
+            headers["Accept"] = RAW_ACCEPT
+            try:
+                resp = self._client.get(
+                    README_URL.format(full_name=target.native_id), headers=headers
+                )
+            except httpx.TransportError:
+                continue
+            if resp.status_code in (404, 451):
+                continue  # no README, or the repo is gone — expected attrition
+            resp.raise_for_status()
+            body = resp.text.strip()
+            if body:
+                drafts.append(self._readme_draft(target.native_id, body))
+        return drafts
+
+    @staticmethod
+    def _readme_draft(full_name: str, body: str) -> RawEventDraft:
+        # Enrichment, not discovery: occurred_at = now (README text is not an as-of metric).
+        return RawEventDraft(
+            source="github",
+            source_event_uid=f"repo_readme:{full_name}",
+            event_type="repo_readme",
+            occurred_at=datetime.now(UTC),
+            payload={"full_name": full_name, "text": body[:README_CAP]},
+        )
 
     @staticmethod
     def _discovery_draft(repo: dict[str, Any]) -> RawEventDraft:

@@ -222,6 +222,40 @@ def test_hn_story_with_github_link_attaches(db_session: Session) -> None:
     assert _entity_by_anchor(db_session, "github:vllm-project/vllm")
 
 
+# --- README enrichment folds into the entity text (§16) ---------------------
+
+
+def test_repo_readme_folds_into_entity_text(db_session: Session) -> None:
+    # A thin discovery event (one-line description) plus a repo_readme enrichment event.
+    _event(
+        db_session,
+        "github",
+        "repo_discovered:9",
+        "repo_discovered",
+        {"full_name": "acme/widget", "description": "a widget"},
+        datetime(2024, 4, 1, tzinfo=UTC),
+    )
+    _event(
+        db_session,
+        "github",
+        "repo_readme:acme/widget",
+        "repo_readme",
+        {"full_name": "acme/widget", "text": "Widget is a high-throughput inference server. " * 20},
+        datetime(2024, 4, 2, tzinfo=UTC),
+    )
+    db_session.flush()
+    resolve(db_session, now=NOW)
+    db_session.flush()
+
+    ent = db_session.execute(
+        select(Entity).where(Entity.canonical_name == "acme/widget")
+    ).scalar_one()
+    text_blob = ent.attrs.get("text", "")
+    assert "a widget" in text_blob  # the original description survives
+    assert "high-throughput inference server" in text_blob  # README body is folded in
+    assert len(text_blob) > 880, "the pack now has real README content, not just the tagline"
+
+
 # --- category assignment ----------------------------------------------------
 
 
