@@ -114,7 +114,10 @@ def radar(
             ORDER BY CASE COALESCE(ms.state, 'dormant')
                        WHEN 'breakout' THEN 0 WHEN 'accelerating' THEN 1
                        WHEN 'simmering' THEN 2 WHEN 'fading' THEN 3 ELSE 4 END,
-                     COALESCE((ms.inputs->>'P')::float, 0) DESC, e.id
+                     COALESCE((ms.inputs->>'P')::float, 0) DESC,
+                     (lc.card IS NOT NULL) DESC,   -- cold-start: surface understood entities
+                     e.created_at DESC,            -- then newest first, so the sweep is visible
+                     e.id
             LIMIT :limit
             """
             ),
