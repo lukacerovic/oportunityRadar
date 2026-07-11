@@ -5,6 +5,8 @@ import type { MomentumState, RadarResponse } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
 import { EntityCard } from "@/components/EntityCard";
 import { ApiError } from "@/components/ApiError";
+import { InfoButton } from "@/components/InfoModal";
+import { HELP } from "@/lib/help";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +48,10 @@ export default async function RadarPage({
       <main className="mx-auto max-w-[1400px] px-5 py-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Radar</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">Radar</h1>
+              <InfoButton content={HELP.radar} />
+            </div>
             <p className="mt-1 text-sm text-muted">
               {data.count} tracked entities · ranked by momentum, then velocity ·{" "}
               <span className="tabular text-faint">

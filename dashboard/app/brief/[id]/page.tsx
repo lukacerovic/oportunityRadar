@@ -6,6 +6,8 @@ import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
 import { BriefActions } from "@/components/BriefActions";
 import { BriefScoring } from "@/components/BriefScoring";
+import { InfoButton } from "@/components/InfoModal";
+import { HELP } from "@/lib/help";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +63,7 @@ export default async function BriefPage({ params }: { params: { id: string } }) 
               >
                 {s.label}
               </span>
+              <InfoButton content={HELP.briefDetail} />
             </div>
             <p className="mt-1 text-xs text-faint">
               Impact brief · as of {brief.as_of.slice(0, 10)} · {brief.model ?? "—"} ·{" "}

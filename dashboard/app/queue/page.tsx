@@ -5,6 +5,8 @@ import Link from "next/link";
 import { titleize } from "@/lib/format";
 import type { QueueItem } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
+import { InfoButton } from "@/components/InfoModal";
+import { HELP } from "@/lib/help";
 
 const BASE = process.env.SEISMO_API_BASE ?? "http://127.0.0.1:8000";
 
@@ -56,7 +58,10 @@ export default function QueuePage() {
       <main className="mx-auto max-w-3xl px-5 py-6">
         <div className="mb-5 flex items-end justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Merge Queue</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">Merge Queue</h1>
+              <InfoButton content={HELP.queue} />
+            </div>
             <p className="mt-1 text-sm text-muted">
               Name-backed candidates (R4–R5) for a human call. Keyboard:{" "}
               <Kbd>M</Kbd> merge · <Kbd>N</Kbd> reject · <Kbd>S</Kbd> skip.

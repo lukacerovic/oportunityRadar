@@ -9,6 +9,8 @@ import { MetricChart } from "@/components/MetricChart";
 import { MaturityLadder } from "@/components/MaturityLadder";
 import { Kpi, KpiRow } from "@/components/Kpi";
 import { ApiError } from "@/components/ApiError";
+import { InfoButton } from "@/components/InfoModal";
+import { HELP } from "@/lib/help";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,7 @@ export default async function DossierPage({ params }: { params: { id: string } }
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold tracking-tight">{d.name}</h1>
               <StateChip state={d.state} provisional={d.provisional} size="md" />
+              <InfoButton content={HELP.entity} />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
               <Meta icon="tag" text={titleize(d.category)} />

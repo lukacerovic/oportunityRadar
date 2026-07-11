@@ -4,6 +4,8 @@ import { titleize } from "@/lib/format";
 import type { BriefListItem } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
+import { InfoButton } from "@/components/InfoModal";
+import { HELP } from "@/lib/help";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,10 @@ export default async function BriefInbox() {
       <TopNav active="/brief" />
       <main className="mx-auto max-w-[1000px] px-5 py-6">
         <div className="mb-5">
-          <h1 className="text-xl font-semibold tracking-tight">Impact Briefs</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold tracking-tight">Impact Briefs</h1>
+            <InfoButton content={HELP.briefList} />
+          </div>
           <p className="mt-1 text-sm text-muted">
             Who is exposed to each rising entity, how, and what to watch. Every brief is drafted by
             the checkpoint and <span className="text-accent">reviewed by a human</span> before it

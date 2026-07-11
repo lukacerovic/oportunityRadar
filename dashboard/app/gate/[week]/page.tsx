@@ -4,6 +4,8 @@ import { pct, titleize } from "@/lib/format";
 import type { GateDecisionItem, GateWeekResponse } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
+import { InfoButton } from "@/components/InfoModal";
+import { HELP } from "@/lib/help";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +49,10 @@ export default async function GatePage({ params }: { params: { week: string } })
       <main className="mx-auto max-w-[1100px] px-5 py-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Significance Gate</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">Significance Gate</h1>
+              <InfoButton content={HELP.gate} />
+            </div>
             <p className="mt-1 text-sm text-muted">
               Deterministic pick of the week&rsquo;s briefs — no LLM. Score ={" "}
               <span className="tabular text-faint">M × (0.4 + 0.6·R) × (0.4 + 0.6·N)</span>.
