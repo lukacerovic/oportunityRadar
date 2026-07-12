@@ -1,0 +1,33 @@
+# exposure_map/WDAY.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: WDAY
+name: Workday, Inc.
+cik: "0001327811"
+sector: software-application
+revenue_lines:
+  - id: subscription
+    name: Subscription services
+    share_of_revenue: 0.89
+    source: "first-pass approximate (subscription ~89% of revenue); verify vs 10-K"
+    depends_on: [hcm-fins-seats, ai-agent-attach]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # AI agents can automate HR/finance tasks and deflect seats (dual-edged w/ Illuminate)
+        core: true
+      - category: workflow-orchestration
+        relation: enablement          # AI-driven HR/finance workflow automation raises platform value
+      - category: rag-framework
+        relation: enablement          # assistants grounded in Workday's HR/finance data
+  - id: professional_services
+    name: Professional services
+    share_of_revenue: 0.11
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  System-of-record for HCM + Financials at large enterprises; high switching costs; unified data
+  model powering AI features (Illuminate).
+sensitivity_notes: >
+  Seat-based HR/finance software is dual-edged: agentic automation both monetizes (AI SKUs) and
+  threatens (fewer administrative seats). Watch AI-SKU attach + subscription NRR against automation
+  of transactional roles.
+updated: 2026-07-01

@@ -1,0 +1,40 @@
+# exposure_map/ASML.yaml — first-pass slice (doc 08 §1). VERIFY figures vs annual report.
+ticker: ASML
+name: ASML Holding N.V.
+sector: semiconductors
+revenue_lines:
+  - id: euv_systems
+    name: EUV lithography systems
+    share_of_revenue: 0.45
+    source: "first-pass approximate (EUV ~45% of net system sales share varies by quarter); verify vs annual report"
+    depends_on: [leading-edge-node-buildout, ai-fab-capex]
+    threat_surface:
+      - category: model-foundation
+        relation: enablement          # frontier compute buildout pulls leading-edge fab capacity
+        core: true
+      - category: distributed-systems
+        relation: enablement          # AI cluster scale drives advanced-node wafer demand
+      - category: model-efficiency
+        relation: demand_risk         # far-cheaper compute-per-capability could slow leading-edge capex
+  - id: duv_systems
+    name: DUV lithography systems
+    share_of_revenue: 0.30
+    source: "first-pass approximate; verify vs annual report"
+    depends_on: [mature-node-demand]
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement          # edge/AI-adjacent silicon at mature nodes
+  - id: installed_base
+    name: Installed Base Management (service + upgrades)
+    share_of_revenue: 0.25
+    source: "first-pass approximate (service/field options ~1/4 of revenue); verify vs annual report"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Effective monopoly on EUV lithography; multi-year backlog; deep service lock-in on a large
+  installed base of tools.
+sensitivity_notes: >
+  A pure leading-edge-capex enabler, one step removed from AI demand. Exposure is to the pace of
+  fab investment, not any single model. The slow risk is a compute-efficiency shift that lengthens
+  node cadence. Watch bookings + leading-edge capex guidance from the top foundries.
+updated: 2026-07-01

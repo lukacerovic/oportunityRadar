@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 # scripts/daily.sh — Seismograph daily heartbeat.
 #
-# Runs the full daily monitoring cycle in the correct order (HANDOFF §8):
-#   collect (find new) → track (measure known) → resolve (fold in) → snapshot → score → comprehend → changes
+# Runs the FULL daily monitoring cycle in the correct order (HANDOFF §8, COMMANDS.md §1):
+#   collect → track → resolve → snapshot → score → comprehend → gate → brief → changes
+# i.e. discover → measure → identify → momentum → AI cards → pick significant → draft impact briefs
+# → record deltas. This is the one command to run each day for the full analysis.
 #
 # Run this ONCE a day. The critical step is `track`: it records today's star/fork counts for known
 # repos, and momentum = how those change over ~7 days. Miss days ⇒ gaps ⇒ momentum never builds.
+#
+# `gate`/`brief` operate on the current ISO week and are re-runnable (the gate deletes the week's
+# rows and re-scores; brief skips entities that already have a live draft). Early on both do nothing
+# — the gate passes nobody until entities reach accelerating/breakout (needs ~1–2 weeks of `track`).
 #
 # Steps are isolated: if one fails the script logs it and keeps going, then prints a summary and
 # exits non-zero if anything failed (so you notice). Nothing here spends money — the LLM is local.
 #
 # Usage:
-#   ./scripts/daily.sh                # tracks TRACK_LIMIT (default 1500) repos
+#   ./scripts/daily.sh                # full cycle; tracks TRACK_LIMIT (default 1500) repos
 #   TRACK_LIMIT=800 ./scripts/daily.sh
-#   SKIP_COMPREHEND=1 ./scripts/daily.sh
+#   SKIP_COMPREHEND=1 ./scripts/daily.sh   # skip both LLM steps (comprehend + brief) — no Ollama needed
+#   SKIP_BRIEF=1 ./scripts/daily.sh        # run cards but skip drafting briefs
 #
 # Requirements: the Ollama app must be open (for `comprehend`); SEISMO_GITHUB_TOKEN set in .env.
 # NOTE: tracking is capped at TRACK_LIMIT because the free GitHub tier is 5000 calls/hr and there
@@ -25,6 +32,7 @@ set -o pipefail  # so a step's failure is seen through the `| tee` pipe, not mas
 cd "$(dirname "$0")/.." || exit 1
 
 TRACK_LIMIT="${TRACK_LIMIT:-1500}"
+WEEK="$(date +%G-W%V)"          # current ISO week (e.g. 2026-W28) for gate/brief
 LOG_DIR="logs"
 mkdir -p "$LOG_DIR"
 STAMP="$(date +%Y-%m-%d)"
@@ -53,6 +61,13 @@ run "snapshot" uv run seismo snapshot
 run "score"    uv run seismo score
 if [ "${SKIP_COMPREHEND:-0}" != "1" ]; then
   run "comprehend" uv run seismo comprehend
+fi
+# Stage 6 (doc 07): deterministic significance gate — no LLM. Picks ≤5 briefs for the current week.
+run "gate"     uv run seismo gate --week "$WEEK"
+# Stage 7 (doc 08): impact briefs (LLM #2, local Ollama) for entities the gate passed — stored draft.
+# Needs Ollama, like comprehend; skip it when comprehend is skipped or SKIP_BRIEF=1.
+if [ "${SKIP_COMPREHEND:-0}" != "1" ] && [ "${SKIP_BRIEF:-0}" != "1" ]; then
+  run "brief"  uv run seismo brief --week "$WEEK"
 fi
 # Stage 8 (doc 09): deterministic Changes view — cheap ($0, no LLM), records today's deltas.
 run "changes"  uv run seismo changes

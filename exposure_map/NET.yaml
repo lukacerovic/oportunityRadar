@@ -1,0 +1,29 @@
+# exposure_map/NET.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: NET
+name: Cloudflare, Inc.
+cik: "0001477333"
+sector: software-infrastructure
+revenue_lines:
+  - id: subscription
+    name: Subscription (network, security, developer platform)
+    share_of_revenue: 1.00
+    source: "first-pass approximate (revenue is effectively all subscription); verify vs 10-K"
+    depends_on: [edge-network, workers-ai, ai-gateway, zero-trust]
+    threat_surface:
+      - category: inference-runtime
+        relation: enablement          # Workers AI serves inference at the edge — a new usage surface
+        core: true
+      - category: llm-gateway
+        relation: enablement          # AI Gateway (routing/caching/observability for model calls)
+      - category: ai-security
+        relation: enablement          # securing AI apps/agents + bot/abuse defense
+      - category: on-device-runtime
+        relation: substitution_partial # pure on-device inference can bypass edge inference for some workloads
+moat_notes: >
+  Global edge network with developer-first primitives; integrated security + compute + storage;
+  Workers/AI Gateway positioning Cloudflare as an inference and AI-app control plane.
+sensitivity_notes: >
+  A net-AI-beneficiary via edge inference, AI Gateway, and securing AI apps. The offset is that some
+  inference shifts on-device or to hyperscaler back ends. Watch Workers AI / developer-platform
+  revenue mix + large-customer expansion.
+updated: 2026-07-01

@@ -2,11 +2,14 @@
 # the lagging confirmation (Jan 2025 repricing) is deliberately outside the window. The brief is
 # pinned at 2024-05-31, so H2 sees only pre-repricing evidence.
 #
-# NOTE (loader status, doc 11 §1): GitHub (GH Archive, HEAVY), Hacker News (Algolia, natively
-# historical), and arXiv (targeted seed fetch) now have loaders. Hugging Face + Wayback remain
-# gaps — so the `github:`/`arxiv:` refs in H1a resolve once loaded, but the `hf:` ref will not
-# until the HF loader ships (H1a reports the miss honestly). Run the full case after the HF loader
-# lands and `backfill-stars` (HEAVY) has run. See HANDOFF.
+# NOTE (loader status, doc 11 §1 / §26): GitHub (GH Archive, HEAVY), Hacker News (Algolia), arXiv
+# (targeted), and Hugging Face (author fetch) all have loaders now. Identity (H1a) unifies via the
+# arXiv paper as the hub: the HF model carries an `arxiv:2405.04434` tag (R2 → model↔paper), and the
+# repo's README cites the same id (R1 → repo↔paper). The arXiv *comment* is EMPTY (no github link
+# from that side), and the GH Archive backfill payload is bare, so the runner now enriches the seed
+# repos' READMEs (default_loader) — without that the repo is an identity island and H1a fails. The
+# `hf:` ref is the MODEL (`deepseek-ai/DeepSeek-V2`), not the bare org (no org-anchored entity
+# exists). Run in an ISOLATED clean DB (§26.1); H1b/H2 need `backfill-stars` (HEAVY) + a pinned model.
 case: deepseek
 window: {from: 2024-01-01, to: 2024-07-31}
 
@@ -28,7 +31,7 @@ assertions:
     refs:
       - "github:deepseek-ai/deepseek-v2"
       - "arxiv:2405.04434"
-      - "hf:deepseek-ai"
+      - "hf:deepseek-ai/DeepSeek-V2"
 
   # H1b — momentum climbs to at least accelerating before the pin (the foreshock the gate can spend).
   - id: H1b

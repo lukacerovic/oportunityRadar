@@ -399,8 +399,10 @@ def hindcast(
             result = run_hindcast(session, parsed, reload=reload, step_days=step_days)
         typer.echo(f"[hindcast] {result.as_note()}")
         for r in result.results:
-            mark = typer.style("PASS", fg=typer.colors.GREEN) if r.passed else typer.style(
-                "FAIL", fg=typer.colors.RED
+            mark = (
+                typer.style("PASS", fg=typer.colors.GREEN)
+                if r.passed
+                else typer.style("FAIL", fg=typer.colors.RED)
             )
             typer.echo(f"  {mark} {r.id} ({r.type}): {r.detail}")
         for w in result.warnings:

@@ -6,8 +6,8 @@
 
 **This session shipped:** **Stage 8 — Memory & Synthesis (doc 09).** Deterministic **Changes view** (`memory/changes.py` → `changes_daily`, templated diffs, no LLM), automated **momentum calibration** (`memory/calibration.py` → `calibration_snapshots`: breakout-survival + fade-reaccel), and **brief forward-scoring** (`memory/scoring.py`: assembler + **A-7 auto-evaluation** of `system` observables + `record_score`). Migration 0005, `seismo changes`/`seismo calibrate` CLI (+`changes` in `daily.sh`), API (`/changes/{day}`, `/calibration`, `/briefs/{id}/score-packet`, `/briefs/{id}/score`), dashboard `/changes/[day]` + a scoring panel on published briefs. 9 `test_memory.py` + `test_api.py` +1. Also shipped **Stage 7** earlier this session (§20). Full Stage-8 narrative in **§21**.
 
-**IMMEDIATE next task (pick one, see §22.4):** (a) **Stage 9 — DeepSeek hindcast** (the validation that earns trust; needs the heavy `backfill-stars`); (b) **Stage 10 — deploy + start the daily soak** (doc 12); (c) **curate the exposure map 8→30** with real 10-K figures. Brief quality is now **confirmed good with the 7B model** and a counter-mechanism guard shipped (§22) — scenario/KPI enrichment is NOT needed.
-**To resume:** "Read HANDOFF.md (esp. §22)." Stages 0–8 complete + brief-quality validated; calibration instruments read n=0 until ~90 days of daily momentum accrue.
+**IMMEDIATE next task:** Recent ships — HF collector (§25), Reflection-70B GREEN 3/3 (§26), DeepSeek H1a identity proven cheaply + 4 identity fixes (§27), **exposure map curated 8→30 companies (§28)**. Remaining, pick one: (a) **DeepSeek H1b/H2 hindcast** — the HEAVY part (`backfill-stars` over `deepseek-ai`, hundreds of GB; H2 needs `SEISMO_MODEL_HINDCAST` pinned to 7B/anthropic, run 3×; isolated DB per §26.1); (b) **verify the 30-company map figures vs 10-Ks + add CIKs** (§28.3 — engineering is exact, numbers are first-pass); (c) **PyPI collector** (5th evidence type); (d) **run daily for weeks** so momentum wakes up; (e) deploy (Stage 10, LAST). To apply the new map to a DB: `seismo load-map` (§28.4).
+**To resume:** "Read HANDOFF.md (esp. §26)." Stages 0–9 complete (harness + all-but-Wayback/PyPI loaders); Reflection-70B validated; DeepSeek is the remaining hindcast; calibration instruments read n=0 until ~90 days of daily momentum accrue.
 
 ---
 
@@ -557,7 +557,7 @@ Reading the collectors settled which "loaders" actually need building:
 - **arXiv needed only a targeted fetch, not a full loader.** `discover` pages from the *newest* submissions and can't reach an arbitrary past window — but a case pins exact paper ids, so `ArxivCollector.fetch_ids(id_list)` jumps straight to them. `load_arxiv` uses it for the case's seed papers (DeepSeek's `2405.04434` for the H1a identity check).
 - **Hugging Face is the only genuine remaining loader** — no HF collector exists at all yet.
 
-**Loader status now:** GitHub ✅ (GH Archive, HEAVY) · Hacker News ✅ (already historical, wired) · arXiv ✅ (targeted seed fetch) · **Hugging Face ❌ (the one real remaining build)** · Wayback ❌ · PyPI ❌ (last two deferred — not needed for the two v1 cases).
+**Loader status (as of §24 — SUPERSEDED by §25.2, HF now ✅):** GitHub ✅ (GH Archive, HEAVY) · Hacker News ✅ (already historical, wired) · arXiv ✅ (targeted seed fetch) · **Hugging Face ❌ (the one real remaining build)** · Wayback ❌ · PyPI ❌ (last two deferred — not needed for the two v1 cases).
 
 ### 24.3 NEXT — build the Hugging Face collector (the last loader before real validation)
 Agreed plan (deployment deferred to the very end):
@@ -576,3 +576,251 @@ Agreed plan (deployment deferred to the very end):
 - **`db_session` tests share the live dev DB** (rollback-only), so any seed data must use collision-proof synthetic ids (e.g. arXiv `0000.00001`, category `ztest-category`/`ZTST`) — the real `2405.04434` already lives in the DB and would make a dupe-insert test read the pre-existing row.
 - **`.env` sets `SEISMO_LLM_PROVIDER=ollama`** → `test_config.py::test_defaults_are_dev_safe` fails (pre-existing, documented); and any end-to-end LLM test must force `mock` or it hits the local model.
 - **`explain.txt`** at repo root is the user's scratch file — not committed, leave it.
+
+---
+
+## 25. SESSION LOG (2026-07-11, cont.) — Hugging Face collector, SHIPPED (the last v1 loader)
+
+Built the HF collector per §24.3 item 1 — the final piece blocking real hindcast validation. Usage
+is now a live evidence type (the 4th, A-5) and the DeepSeek/Reflection-70B `hf:` identity refs
+resolve.
+
+### 25.1 What shipped (files)
+1. **`collectors/hf.py` — `HuggingFaceCollector` (source `hf`).** Three methods over the public Hub
+   API (`huggingface.co/api/models`), optional `SEISMO_HF_TOKEN` (already in config):
+   - **`discover(window)`** — models *trending now* (`sort=trendingScore`) that were *born in the
+     window* (createdAt) with real traction + a relevant modality. **Key design correction (found
+     via live smoke, not mocks):** sorting by `createdAt` is self-defeating — the newest models top
+     that sort but have ~0 usage, so a traction gate rejects them all (returned **0**). The Hub has
+     no server-side date filter and `MAX_PAGES` only covers ~hours of the firehose. The inverse
+     (trending desc, filter by birth date) surfaces the right thing: `discover(30d)` live returns
+     ~289 real models (`zai-org/glm-5.2-fp8` 2.5M dl, `nvidia/kimi-k2.7-code`, `baidu/unlimited-ocr`),
+     not spam clones. Relevance = traction (`downloads≥1000` OR `likes≥10`) **AND** modality
+     (relevant `pipeline_tag` OR keyword in id/tags) — a bare `text-generation` clone with 0 usage
+     is noise (an early too-loose filter yielded **652 junk/day**).
+   - **`fetch_by_author(authors)`** — the hindcast seed path (`?author=<org>&full=true&limit=1000`);
+     keeps each model's real `createdAt`. Live-proven: `deepseek-ai` → 101 models incl.
+     `DeepSeek-V2` (born 2024-05); `mattshumer` → `reflection-*` models. No pagination gap for real
+     orgs (limit honored past 100, no Link header).
+   - **`track(targets, window)`** — `model_snapshot` with `downloads` (the `hf_downloads_30d` level;
+     **never diff it** — rolling level, doc 06 §1). Per-target 401/404/451 + `TransportError`
+     isolation exactly like the GitHub tracker. Live: `deepseek-ai/DeepSeek-V2` → downloads 7000.
+   - Discovery uid `model_discovered:{id}` (id lowercased), snapshot uid via `snapshot_uid`.
+2. **Wiring (no new code needed downstream — it was all waiting):** `anchors.primary_anchor`/`references`
+   already handle `hf` (`payload['id']`, `arxiv:` tags); `ladder` already promotes `usable_artifact`
+   on any `source=='hf'` event; `metrics.METRIC_SPECS` already declares `hf_downloads_30d`
+   (`model_snapshot`/`downloads`, level, usage). Registered in `collectors/registry.py` (FACTORIES
+   + `all` group, **not** `fast` — HF discovery is broader, own cadence); added `hf` to
+   `targets._SOURCE_REGISTRY` so `seismo track --source hf` polls hf-anchored entities.
+3. **`hindcast/loaders.py::load_hf(session, orgs, window)`** — org-scoped fetch, drops models born
+   after `window.until` (no future leak), stamps `origin='backfill'`. Wired into
+   `runner.default_loader` (HF removed from the loader-gap list). arXiv/HF/HN loaders now all live;
+   only Wayback + PyPI remain gaps (deferred — not needed for the two v1 cases).
+4. **Tests — `test_collectors.py` +5** (discover window/traction/modality gates across a Link cursor,
+   fetch_by_author preserves createdAt, track snapshots downloads + skips 401/404, track skips
+   transient). 17 collector tests green. `ruff`/`mypy src` (54 files)/invariant-3/`doctor` all green.
+
+### 25.2 Loader status now: GitHub ✅ · Hacker News ✅ · arXiv ✅ · **Hugging Face ✅** · Wayback ❌ · PyPI ❌ (deferred)
+
+### 25.3 NEXT — run the real validation (machinery is now complete)
+All three loaders the v1 cases need exist. The payoff work (§23.5 / §24.3.2). **UPDATE: Reflection-70B
+is now GREEN 3/3 — see §26.** Remaining:
+1. ~~**Reflection-70B**~~ **✅ DONE (§26)** — green 3/3 on real Sept-2024 history.
+2. **DeepSeek (HEAVY):** `seismo hindcast --case deepseek --reload` — arXiv `2405.04434` + HF
+   `deepseek-ai` are cheap, but GH Archive `backfill-stars` for H1b momentum is hundreds of GB; scope
+   tightly, run once. For **H2 3/3** pin `SEISMO_MODEL_HINDCAST` to the 7B/anthropic model (A-8), not
+   the 3B daily. Assert cost_collapse + commoditization + NVDA-down/cloud-up exposures + real counter.
+3. Then: pick the mid-size 3rd case · curate map 8→30 · PyPI tracking (5th type) · run daily for
+   weeks · deploy (Stage 10, LAST).
+
+### 25.4 Gotchas / learnings (don't relearn)
+- **HF `discover` must sort by traction, not recency.** `sort=createdAt` + a traction filter = always
+  0 (newest models have no usage yet, and `MAX_PAGES` can't scan deep enough to reach aged-but-now-
+  popular ones). Use `sort=trendingScore` desc, filter by `createdAt`-in-window. This was invisible
+  to mocks — only the live smoke test caught it (the recurring "test collectors against real APIs"
+  lesson, §14).
+- **HF `downloads` is a 30-day rolling LEVEL, not a counter** — same trap as always; `metrics.py`
+  already treats it as `kind='level'` (no diff, no forward-fill). Don't "fix" it into a counter.
+- **`fetch_by_author` limit=1000 covers real orgs** (deepseek-ai = 101, no Link header). A hypothetical
+  >1000-model org would truncate; add cursor paging then, not now (YAGNI).
+- **HF is in the `all` group but not `fast`** — daily `scripts/daily.sh` (`--source fast`) still only
+  runs github/hn/arxiv, so HF discovery does NOT yet run daily. To turn it on, add a step or switch
+  the group; deferred because HF discovery volume/cadence wants its own timer.
+
+---
+
+## 26. SESSION LOG (2026-07-11, cont.) — Reflection-70B hindcast GREEN 3/3 (first real validation)
+
+Ran the negative "must-ignore" case on **real Sept-2024 history** end-to-end (collect→resolve→
+snapshot→score→gate→brief). **`seismo hindcast --case reflection70b --reload` = PASS 3/3.** First hard
+evidence the whole machine works on real data: the infamous Reflection-70B hype flop is correctly
+ignored — never accelerating/breakout, never a gate candidate, **never briefed.**
+
+### 26.1 Two operational findings (both matter for every future hindcast)
+1. **A hindcast MUST run against an isolated, clean DB — not the live dev DB.** Running the CLI against
+   the dev DB hit `IntegrityError: entity_merges_pkey (loser_id=15665 already exists)`. Root cause:
+   `entity_merges` has a **single-column global `loser_id` PK**, but the runner calls
+   `resolve(now=window_end=2024-09-30)`; `canonical_entity_id` at that past as-of **can't see the dev
+   DB's 2026-dated merges**, so resolve legitimately tries to merge an entity that is *already* a
+   committed (future-dated) loser → PK collision. The transaction rolled back (dev DB untouched). Fix
+   = replay in a dedicated DB holding only the case's backfill (this is what the runner tests' `clean_db`
+   already does; the CLI doesn't). **Operational recipe (used this run):**
+   ```bash
+   dropdb --if-exists seismograph_hindcast && createdb -O seismo seismograph_hindcast
+   psql -d seismograph_hindcast -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+   export SEISMO_DATABASE_URL="postgresql+psycopg://seismo:seismo@localhost:5432/seismograph_hindcast"
+   uv run alembic upgrade head && uv run seismo load-map
+   uv run seismo hindcast --case reflection70b --reload
+   ```
+   Vocab (categories/themes) is read from `seed/*.yaml` on disk, so a clean DB needs no seeding; the
+   exposure map does (`load-map`) if a case's gate could pass anything. **A `seismo hindcast` that
+   auto-provisions/uses an isolated DB is a worthwhile future ergonomic** — for now, do it by hand.
+2. **H3a reframed to the TRUE invariant (with the user's sign-off).** The old H3a asserted the flop
+   "reached simmering". It can't in v1, and shouldn't: attention (HN) is **excluded from the velocity
+   composite by design** (idea-spec principle 3 — hype must not move momentum), and the only real path
+   to `simmering` for an HF model is **download velocity, which is NOT historically reconstructable**
+   (the HF API returns only the *current* 30-day download level, no daily history). So the model
+   correctly stays `dormant`. H3a now asserts the real guarantee: **`mode: never`, `states:
+   [accelerating, breakout]`** — a pure attention spike must NEVER climb to a briefable state. That is
+   exactly what H3b (gate suppression) enforces downstream; H3a proves it at the momentum layer.
+
+### 26.2 What shipped (files)
+- **`hindcast/assertions.py::_eval_momentum`** gained a `mode` param: `reached` (default, existing) vs
+  **`never`** (entity must NOT have reached any listed state; requires real momentum history so it
+  can't pass vacuously). No new assertion *type* (schema unchanged — `mode` rides `extra="allow"`).
+- **`hindcast/cases/reflection70b.yaml`** — H3a → `mode: never` over `[accelerating, breakout]`; NOTE
+  rewritten to explain the download-curve gap + the attention-exclusion rationale.
+- **`hindcast/loaders.py::load_hf`** — now tolerant of a seed given as a **full model id** (`org/model`)
+  or a bare **author** (`org`): it fetches by author (part before `/`), de-duped. (The case seeded
+  `mattshumer/Reflection-Llama-3.1-70B`; author is `mattshumer`.)
+- **Tests — `test_hindcast.py` +3** (`mode:never` passes below ceiling / fails when breached / fails
+  without history). 29 hindcast + 17 collector tests green; ruff/mypy(54)/invariant-3 clean.
+
+### 26.3 The result (isolated `seismograph_hindcast` DB, Sept 2024)
+Loaded 193 HN stories + 18 `mattshumer` HF models. Entity 15 = `mattshumer/reflection-llama-3.1-70b`,
+resolved from the HF createdAt (2024-09-05). Its only attached signal is that one `model_discovered`
+event (→ `usable_artifact` promotion, breadth=1) — **zero HN stories attached** (the real Sept-2024
+HN threads linked to Twitter/news, not the HF page; and attention couldn't lift momentum anyway).
+Result per assertion: **H3a** never reached accelerating/breakout (`dormant` throughout) · **H3b** never
+a gate candidate · **H3c** no brief in any status. Report: scratchpad `reflection70b_report.md`.
+
+### 26.4 NEXT
+1. **DeepSeek hindcast (the positive, HEAVY):** same isolated-DB recipe, `--case deepseek --reload`.
+   arXiv `2405.04434` + HF `deepseek-ai` load cheap; **H1b momentum needs GH Archive `backfill-stars`
+   over `deepseek-ai` for 2024 — hundreds of GB, scope tight, run once.** For **H2 3/3** pin
+   `SEISMO_MODEL_HINDCAST` to 7B/anthropic (A-8), run 3×, require cost_collapse + commoditization +
+   NVDA-down/cloud-up exposures + a real counter-mechanism. **First** sanity-check `deepseek.yaml`'s
+   refs against reality like we did here (the DeepSeek-V2 arXiv id, the `deepseek-ai` HF/GH anchors).
+2. Then: mid-size 3rd case · curate map 8→30 · PyPI (5th type) · run daily for weeks · deploy (LAST).
+
+---
+
+## 27. SESSION LOG (2026-07-11, cont.) — DeepSeek case ref-validation + 4 identity fixes (H1a proven cheaply)
+
+Before committing to the HEAVY GH Archive `backfill-stars`, validated the DeepSeek case's refs against
+reality (arXiv + HF + README — no firehose). **H1a identity now PASSES**: the three refs
+(`github:deepseek-ai/deepseek-v2` + `arxiv:2405.04434` + `hf:deepseek-ai/DeepSeek-V2`) collapse to
+ONE entity at the 2024-05-31 pin. Found and fixed **four** real issues along the way — none were
+visible without running it on real data.
+
+### 27.1 The identity chain (how the three unify)
+The **arXiv paper is the hub**: the HF model card carries an `arxiv:2405.04434` tag (R2 → model↔paper),
+and the repo's **README** cites the same id (R1 → repo↔paper). The arXiv *comment* is EMPTY (verified
+live — the paper does NOT cite the repo from its side), so the README R1 link is load-bearing.
+
+### 27.2 Four fixes (all shipped this session)
+1. **Ref bug — `hf:deepseek-ai` → `hf:deepseek-ai/DeepSeek-V2`.** The HF loader anchors individual
+   *models* (`hf:deepseek-ai/deepseek-v2`); there is **no bare-org `hf:deepseek-ai` entity**, so the
+   old ref never resolved. Fixed in `hindcast/cases/deepseek.yaml`.
+2. **`anchors.references('github')` ignored the README body (latent LIVE bug too).** It read
+   `payload['readme']`, but a `repo_readme` enrichment event (§16) stores the body under
+   `payload['text']` — so **README arXiv citations never created R1 links**, in hindcast *or* the live
+   pipeline (every `enrich-readmes` run was silently not linking repos to their papers). Now reads
+   `payload.get('readme') or payload.get('text')`. +1 test (`test_identity_pure.py`).
+3. **GH Archive backfill = identity island → added `load_github_readmes`.** The backfill payload is
+   bare (`{"repo": …, "backfilled": True}` — no description/homepage/README), so a seeded repo has
+   nothing to link on. New `hindcast/loaders.py::load_github_readmes(session, github_seeds, window)`
+   fetches the seed `owner/repo` READMEs (skips org handles) via `GitHubCollector.readmes`; wired into
+   `runner.default_loader` right after the star backfill. Cheap (one call/repo).
+4. **Enrichment events are `now()`-dated → invisible at a past as-of.** `GitHubCollector.readmes`
+   stamps `occurred_at=now()` (README text isn't an as-of metric, §16), so the R1 merge it justified
+   was dated 2026 and `canonical_entity_id(…, 2024-05-31)` (which only follows merges
+   `justified_at <= as_of`) couldn't see it — H1a failed with the repo still separate. `load_github_readmes`
+   now **backdates the README event to `window.since`** so the identity link is visible throughout the
+   case. +2 tests (`test_hindcast.py`: org-filter + backdate; no-repo-seed no-op).
+
+### 27.3 Verified
+- **Cheap live H1a proof** (isolated `seismograph_hindcast` DB, no firehose): `load_arxiv` +
+  `load_hf(['deepseek-ai'])` + `load_github_readmes(['deepseek-ai/DeepSeek-V2'])` → `resolve` → all
+  three refs → **entity 12** at as_of 2024-05-31. **PASS.**
+- 60 tests green (`test_hindcast` + `test_identity_pure` + `test_collectors`); ruff/mypy(54)/invariant-3 clean.
+
+### 27.4 NEXT — DeepSeek H1b + H2 (the HEAVY part, refs now proven)
+Identity is validated; the remaining two assertions need the expensive inputs:
+1. **H1b (momentum → accelerating by 2024-05-31):** needs `backfill-stars` over `deepseek-ai` for
+   Jan–May 2024 (GH Archive firehose, **hundreds of GB** — scope tight, run once). Run the full case in
+   the isolated DB: `seismo hindcast --case deepseek --reload` (the `default_loader` now does arXiv +
+   HF + README + the star firehose). Watch that the merged entity's `gh_stars` velocity clears the
+   cohort percentile — a single-repo cohort may need care (percentile over a thin cohort).
+2. **H2 (brief facts):** pin `SEISMO_MODEL_HINDCAST` to 7B/anthropic (A-8, NOT the 3B daily), run 3×,
+   require cost_collapse + commoditization + NVDA (+ MSFT/GOOGL) exposures + a real counter + dated
+   observables. The brief entity is `github:deepseek-ai/deepseek-v2` (the unified entity).
+3. Then: mid-size 3rd case · curate map 8→30 · PyPI (5th type) · run daily · deploy (LAST).
+
+---
+
+## 28. SESSION LOG (2026-07-11, cont.) — exposure map curated 8 → 30 companies
+
+Expanded the exposure map from the minimal 8-company slice to the full **30-company roster** (doc 13
+§11 / HANDOFF §11). This directly widens what the gate can reach and what every impact brief can name.
+
+### 28.1 What shipped
+- **22 new `exposure_map/*.yaml` files** (the roster minus the existing 8): **TSM ASML ARM ANET · AAPL
+  ORCL · CRM ADBE NOW TEAM WDAY INTU · MDB DDOG NET CFLT · PLTR SHOP U DOCN PATH CRWD.** Each follows
+  the existing schema exactly: revenue lines with approximate segment shares (summing ≤1.0), a
+  `source` note on every line, and a `threat_surface` mapping the line to frontier categories with a
+  `relation` (demand_risk / substitution_* / enablement / dependency_risk) + a `core` flag on the
+  defining exposure. `moat_notes` + `sensitivity_notes` per company.
+- **Loader verified:** `seismo load-map --strict` → **30 companies, 76 revenue lines, 133 reach_links,
+  22 of 29 categories covered** (was 8 / 25 / 47 / 18). Idempotent + authoritative rebuild intact.
+- **Tests:** `test_exposure.py` de-hardcoded from `== 8` to `== len(files)` (future-proof); 9 green.
+  ruff/mypy clean.
+
+### 28.2 The 7 remaining map-gaps (deliberate, not missing work)
+No public company maps defensibly to: **eval-tooling, memory-framework, prompt-tooling, sdk-client,
+structured-output, synthetic-data, training-framework.** These are developer-tooling niches without a
+clear listed-company *revenue* exposure — fabricating a link would be worse than an honest gap. The
+gate already handles unmapped categories via A-6 (R=0 hard-exclusion → surfaced as map-gaps), so an
+emerging entity in one of these still shows up; it just won't manufacture a false exposure.
+
+### 28.3 ⚠️ Figures are still FIRST-PASS approximations
+Every revenue-share number is an educated estimate flagged in each line's `source` — the *engineering*
+(schema, categories, relations, directions) is exact; the *figures* need verification against 10-K/20-F
+segment notes in the quarterly refresh (doc 08 §5). No `cik` on the new files (omitted rather than
+risk a wrong one → wrong filing); add verified CIKs during the 10-K pass.
+
+### 28.4 To apply it to a running DB
+`exposure_map/` on disk is the source of truth, but the DB's `exposure_companies`/`reach_links` tables
+only update when `seismo load-map` runs. The dev DB still holds the OLD 8-company map until then. Run
+`uv run seismo load-map` (idempotent, authoritative — drops+rebuilds per company) to apply the 30.
+
+### 28.5 NEXT (unchanged priorities)
+DeepSeek H1b/H2 hindcast (heavy, §27.4) · verify map figures vs 10-Ks + add CIKs · PyPI (5th evidence
+type) · run daily for weeks · deploy (Stage 10, LAST).
+
+---
+
+## 29. SESSION LOG (2026-07-11, cont.) — daily.sh now runs the FULL cycle (one command)
+
+`scripts/daily.sh` previously stopped at comprehend+changes (§20.4). It now runs the **complete**
+heartbeat in order: `collect → track → resolve → snapshot → score → comprehend → gate → brief →
+changes`. Added a `WEEK="$(date +%G-W%V)"` (current ISO week) and two isolated steps — `gate --week
+$WEEK` (deterministic, always runs) and `brief --week $WEEK` (LLM; skipped when `SKIP_COMPREHEND=1`
+or new `SKIP_BRIEF=1`, since it needs Ollama). Verified live: the exact invocations run clean on the
+(dormant) dev DB — `date +%G-W%V` → gate week-start 2026-07-06, gate handled its 1 pending candidate,
+brief drafted 0 ($0). `bash -n` clean, script executable. **`COMMANDS.md` §1 rewritten** to lead with
+the single command `./scripts/daily.sh` (variants: `TRACK_LIMIT=`, `SKIP_BRIEF=1`, `SKIP_COMPREHEND=1`)
+and refreshed to current facts (model `qwen2.5:3b-instruct`, migrations 0001–0006, 30-company map,
+full-suite-times-out test note, HF add-on, all 7 dashboard pages + API aliases `/gate/current`
+`/changes/latest`). This **supersedes §20.4** ("not yet in daily.sh") and the §1 caveat in the old
+COMMANDS.md. So the manual daily routine is now literally one command until deployment (Stage 10).

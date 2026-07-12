@@ -1,0 +1,42 @@
+# exposure_map/TSM.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 20-F/quarterly report.
+ticker: TSM
+name: Taiwan Semiconductor Manufacturing Company
+sector: semiconductors
+revenue_lines:
+  - id: hpc
+    name: High Performance Computing (incl. AI accelerators)
+    share_of_revenue: 0.51
+    source: "first-pass approximate (HPC platform ~50% of net revenue, rising with AI); verify vs quarterly platform mix"
+    depends_on: [ai-accelerator-demand, advanced-node-demand, cowos-packaging]
+    threat_surface:
+      - category: distributed-systems
+        relation: enablement          # bigger AI clusters => more advanced-node silicon + packaging
+        core: true
+      - category: model-foundation
+        relation: enablement          # frontier training/inference demand fills leading-edge capacity
+      - category: model-efficiency
+        relation: demand_risk         # radically cheaper compute-per-capability could soften unit demand
+  - id: smartphone
+    name: Smartphone
+    share_of_revenue: 0.33
+    source: "first-pass approximate; verify vs quarterly platform mix"
+    depends_on: [premium-handset-demand]
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement          # on-device AI raises premium-SoC silicon content
+  - id: iot_auto_dce
+    name: IoT + Automotive + Digital Consumer Electronics
+    share_of_revenue: 0.14
+    source: "first-pass approximate; verify vs quarterly platform mix"
+    depends_on: []
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement
+moat_notes: >
+  Leading-edge process lead (N3/N2), CoWoS/advanced-packaging capacity, and deep
+  customer co-design lock-in for the largest AI silicon designers.
+sensitivity_notes: >
+  Overwhelmingly an AI-compute enabler: every credible frontier model needs its leading-edge
+  capacity. The tail risk is a durable compute-per-capability collapse that shrinks accelerator
+  unit volume faster than price/mix lifts it. Watch advanced-node utilization + CoWoS capacity.
+updated: 2026-07-01

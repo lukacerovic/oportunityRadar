@@ -1,0 +1,43 @@
+# exposure_map/AAPL.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: AAPL
+name: Apple Inc.
+cik: "0000320193"
+sector: consumer-hardware
+revenue_lines:
+  - id: iphone
+    name: iPhone
+    share_of_revenue: 0.52
+    source: "first-pass approximate (iPhone ~half of net sales); verify vs 10-K product/services split"
+    depends_on: [upgrade-cycle, on-device-ai-attach]
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement          # on-device AI as an upgrade driver + silicon differentiation
+        core: true
+      - category: model-foundation
+        relation: dependency_risk     # reliance on partner frontier models for higher-order features
+  - id: services
+    name: Services (App Store, cloud, ads, licensing, payments)
+    share_of_revenue: 0.24
+    source: "first-pass approximate (services ~24% and rising); verify vs 10-K"
+    depends_on: [app-ecosystem, search-licensing]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # AI assistants/agents could disintermediate app + search surfaces
+      - category: app-builder
+        relation: substitution_partial # AI app generation pressures the paid-app/dev funnel
+  - id: hardware_other
+    name: Mac + iPad + Wearables, Home and Accessories
+    share_of_revenue: 0.24
+    source: "first-pass approximate (Mac+iPad+Wearables combined); verify vs 10-K"
+    depends_on: []
+    threat_surface:
+      - category: on-device-runtime
+        relation: enablement          # on-device AI raises silicon value across the device line
+moat_notes: >
+  Integrated silicon + OS + services ecosystem; unmatched on-device compute install base;
+  distribution and privacy positioning for local inference.
+sensitivity_notes: >
+  Dual-edged: on-device AI is an upgrade tailwind for hardware, but agentic assistants could erode
+  the Services funnel (App Store, search licensing) and Apple leans on partner models at the frontier.
+  Watch Services growth durability + the pace of credible on-device AI features.
+updated: 2026-07-01

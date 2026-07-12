@@ -7,10 +7,13 @@
 # never climbs to accelerating/breakout (attention is excluded from the velocity composite,
 # idea-spec principle 3), so it never even becomes a gate candidate.
 #
-# NOTE (loader status, doc 11 §1): the HN attention signal now loads (Algolia is natively
-# historical — the live collector points at the case window). The Hugging Face loader remains a
-# gap, so the `hf:` entity ref does not resolve yet and the momentum/brief_absent assertions pass
-# vacuously until it ships. Wire the HF loader before treating a green run as meaningful. See HANDOFF.
+# NOTE (loader status, doc 11 §1): HN attention loads (Algolia is natively historical) and the HF
+# loader now resolves the model entity via `?author=` createdAt (§25). What is NOT reconstructable is
+# the Sept-2024 HF *download curve* — the API returns only the current 30-day level, not history — so
+# the usage-velocity spike that would have driven `simmering` cannot be replayed. This is fine: by
+# design attention is EXCLUDED from the velocity composite (idea-spec principle 3), so a pure hype
+# spike must NOT manufacture momentum. H3a therefore asserts the true invariant — the flop never
+# reached accelerating/breakout — which is exactly what H3b (gate suppression) guarantees downstream.
 case: reflection70b
 window: {from: 2024-09-01, to: 2024-09-30}
 
@@ -19,11 +22,13 @@ seeds:
   # HN attention is the real signal here; Algolia is natively historical (doc 11 §1) once wired.
 
 assertions:
-  # The attention was real — momentum is allowed to reach simmering (but no further, see H3/gate).
+  # The true "hype ≠ momentum" invariant: a pure attention spike (excluded from the velocity
+  # composite) must NEVER climb to accelerating/breakout, so it can never earn a brief.
   - id: H3a
     type: momentum
+    mode: never
     entity: "hf:mattshumer/Reflection-Llama-3.1-70B"
-    states: [simmering, accelerating, breakout]
+    states: [accelerating, breakout]
     as_of: 2024-09-30
 
   # H3 — the gate must never pass it (attention without distribution/commitment is not significant).

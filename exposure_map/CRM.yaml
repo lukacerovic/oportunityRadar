@@ -1,0 +1,35 @@
+# exposure_map/CRM.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: CRM
+name: Salesforce, Inc.
+cik: "0001108524"
+sector: software-application
+revenue_lines:
+  - id: subscription_support
+    name: Subscription and support (across clouds)
+    share_of_revenue: 0.94
+    source: "first-pass approximate (subscription & support ~94% of revenue); verify vs 10-K"
+    depends_on: [seat-based-saas, agentforce-attach, data-cloud]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # AI agents can deflect seats even as Agentforce monetizes them (dual-edged)
+        core: true
+      - category: rag-framework
+        relation: enablement          # grounded assistants over CRM data raise platform value
+      - category: code-assistant
+        relation: enablement          # low-code + AI dev tooling lifts platform stickiness
+      - category: app-builder
+        relation: substitution_partial # AI app generation pressures custom-app lock-in
+  - id: professional_services
+    name: Professional services and other
+    share_of_revenue: 0.06
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Dominant CRM install base + data gravity across clouds; Agentforce/Data Cloud as an AI attach
+  motion; deep partner + integration ecosystem.
+sensitivity_notes: >
+  The seat-based model is the crux: agentic AI can both monetize (Agentforce consumption) and erode
+  (fewer human seats) the core. Net direction hinges on consumption pricing offsetting seat softness.
+  Watch Agentforce/Data Cloud attach + net seat trends.
+updated: 2026-07-01

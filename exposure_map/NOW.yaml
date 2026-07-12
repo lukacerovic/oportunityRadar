@@ -1,0 +1,35 @@
+# exposure_map/NOW.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: NOW
+name: ServiceNow, Inc.
+cik: "0001373715"
+sector: software-application
+revenue_lines:
+  - id: subscription
+    name: Subscription revenue
+    share_of_revenue: 0.97
+    source: "first-pass approximate (subscription ~97% of revenue); verify vs 10-K"
+    depends_on: [workflow-platform-attach, now-assist-genai]
+    threat_surface:
+      - category: workflow-orchestration
+        relation: enablement          # AI-driven workflow automation is the core Now Assist thesis
+        core: true
+      - category: agent-framework
+        relation: enablement          # agentic AI on the platform expands seats + consumption
+      - category: rag-framework
+        relation: enablement          # enterprise knowledge assistants over ServiceNow data
+      - category: code-assistant
+        relation: substitution_partial # AI dev/ITSM automation could pressure some seat growth
+  - id: professional_services
+    name: Professional services and other
+    share_of_revenue: 0.03
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  System-of-action across IT/HR/customer workflows; single platform + data model; Now Assist
+  GenAI attach on a large enterprise install base.
+sensitivity_notes: >
+  Predominantly AI-positive: workflow automation and Now Assist expand platform value and pricing.
+  The watch item is whether agentic automation eventually compresses seat-based expansion. Watch
+  Now Assist net-new ACV + subscription NRR.
+updated: 2026-07-01

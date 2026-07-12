@@ -1,0 +1,33 @@
+# exposure_map/ANET.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: ANET
+name: Arista Networks, Inc.
+cik: "0001596532"
+sector: networking-hardware
+revenue_lines:
+  - id: product
+    name: Product (switching/routing systems)
+    share_of_revenue: 0.83
+    source: "first-pass approximate (product ~80%+ of revenue); verify vs 10-K"
+    depends_on: [ai-backend-fabric, cloud-titan-capex, ethernet-vs-infiniband]
+    threat_surface:
+      - category: distributed-systems
+        relation: enablement          # AI back-end clusters need high-radix, low-latency Ethernet fabric
+        core: true
+      - category: model-foundation
+        relation: enablement          # frontier training scale-out drives switch port demand
+      - category: inference-runtime
+        relation: dependency_risk     # accelerator vendors bundling their own networking contest the socket
+  - id: service
+    name: Service and subscriptions (software/support)
+    share_of_revenue: 0.17
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Single EOS software stack across the portfolio; deep cloud-titan relationships; leadership in
+  high-speed datacenter Ethernet as AI back-end fabrics scale.
+sensitivity_notes: >
+  Strongly levered to AI back-end network buildout (the Ethernet-for-AI thesis). Concentration in a
+  few cloud titans is the demand risk, and accelerator vendors pushing proprietary networking is the
+  competitive risk. Watch AI-cluster port demand + customer concentration.
+updated: 2026-07-01

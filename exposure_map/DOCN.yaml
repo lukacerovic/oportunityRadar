@@ -1,0 +1,29 @@
+# exposure_map/DOCN.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: DOCN
+name: DigitalOcean Holdings, Inc.
+cik: "0001582961"
+sector: software-infrastructure
+revenue_lines:
+  - id: cloud_services
+    name: Cloud services (compute, storage, managed + AI/ML)
+    share_of_revenue: 1.00
+    source: "first-pass approximate (revenue effectively all cloud services); verify vs 10-K"
+    depends_on: [smb-developer-cloud, gpu-droplets, paperspace-ai]
+    threat_surface:
+      - category: inference-runtime
+        relation: enablement          # GPU droplets + Paperspace serve SMB/developer AI inference (core)
+        core: true
+      - category: distributed-systems
+        relation: enablement          # AI/ML compute attach grows platform consumption
+      - category: model-foundation
+        relation: dependency_risk     # hyperscalers' cheaper/deeper AI stacks pressure the SMB niche
+      - category: agent-framework
+        relation: enablement          # simple AI app hosting for SMB developers
+moat_notes: >
+  Simplicity + predictable pricing for SMBs and individual developers; Paperspace/GPU offering as an
+  accessible on-ramp to AI compute outside the hyperscalers.
+sensitivity_notes: >
+  AI compute is a growth on-ramp, but the same workloads are fiercely contested by hyperscalers and
+  neoclouds with deeper capacity and lower prices. Watch AI/ML revenue contribution + net-dollar
+  retention among the SMB base.
+updated: 2026-07-01

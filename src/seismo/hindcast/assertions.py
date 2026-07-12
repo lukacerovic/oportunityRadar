@@ -117,13 +117,16 @@ def _eval_momentum(
 ) -> tuple[bool, str]:
     ref = p.get("entity")
     states = p.get("states") or []
+    mode = str(p.get("mode") or "reached")
     if not ref or not states:
         return False, "malformed: momentum assertion needs 'entity' and 'states'"
+    if mode not in ("reached", "never"):
+        return False, f"malformed: momentum 'mode' must be reached|never, got {mode!r}"
     as_of = _asof_from(p, default_as_of)
     eid = _resolve_ref(session, str(ref), as_of)
     if eid is None:
         return False, f"entity {ref!r} did not resolve at {as_of.date()}"
-    reached = session.execute(
+    hit = session.execute(
         text(
             "SELECT state, day FROM momentum_states "
             "WHERE entity_id = :e AND day <= :d AND state = ANY(:states) "
@@ -131,8 +134,6 @@ def _eval_momentum(
         ),
         {"e": eid, "d": as_of.date(), "states": list(states)},
     ).first()
-    if reached is not None:
-        return True, f"entity {eid} reached {reached[0]!r} on {reached[1]} (≤ {as_of.date()})"
     top = session.execute(
         text(
             "SELECT state, day FROM momentum_states WHERE entity_id = :e AND day <= :d "
@@ -140,6 +141,21 @@ def _eval_momentum(
         ),
         {"e": eid, "d": as_of.date()},
     ).first()
+
+    if mode == "never":
+        # The true "hype ≠ momentum" invariant for a flop: the entity must NEVER have reached any of
+        # these (forbidden) states. Require real momentum history so it can't pass vacuously.
+        if top is None:
+            return False, f"entity {eid} has no momentum rows — 'never' can't be graded"
+        if hit is not None:
+            return (
+                False,
+                f"entity {eid} reached forbidden {hit[0]!r} on {hit[1]} (≤ {as_of.date()})",
+            )
+        return True, f"entity {eid} never reached {states} (last state {top[0]!r} on {top[1]})"
+
+    if hit is not None:
+        return True, f"entity {eid} reached {hit[0]!r} on {hit[1]} (≤ {as_of.date()})"
     seen = f"last state {top[0]!r} on {top[1]}" if top else "no momentum rows"
     return False, f"entity {eid} never reached {states} by {as_of.date()} ({seen})"
 
@@ -224,9 +240,7 @@ def _eval_brief(session: Session, p: dict[str, Any], default_as_of: datetime) ->
     failures: list[str] = []
     mechanisms = set(brief.get("mechanisms") or [])
     exposures = brief.get("exposures") or []
-    ticker_refs = {
-        str(e.get("ref", "")).upper() for e in exposures if e.get("kind") == "ticker"
-    }
+    ticker_refs = {str(e.get("ref", "")).upper() for e in exposures if e.get("kind") == "ticker"}
     observables = brief.get("observables") or []
 
     superset = p.get("mechanisms_superset")

@@ -1,0 +1,41 @@
+# exposure_map/ADBE.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: ADBE
+name: Adobe Inc.
+cik: "0000796343"
+sector: software-application
+revenue_lines:
+  - id: digital_media
+    name: Digital Media (Creative Cloud + Document Cloud)
+    share_of_revenue: 0.73
+    source: "first-pass approximate (Digital Media ~73% of revenue); verify vs 10-K segment note"
+    depends_on: [creative-subscriptions, firefly-attach, document-ai]
+    threat_surface:
+      - category: multimodal-model
+        relation: substitution_partial # generative image/video/audio contests Creative workflows (dual-edged w/ Firefly)
+        core: true
+      - category: app-builder
+        relation: substitution_partial # AI-native design/creation tools contest the low-end funnel
+      - category: rag-framework
+        relation: enablement          # document AI / assistants raise Document Cloud value
+  - id: digital_experience
+    name: Digital Experience (Experience Cloud)
+    share_of_revenue: 0.25
+    source: "first-pass approximate (Digital Experience ~25% of revenue); verify vs 10-K segment note"
+    depends_on: [enterprise-marketing-suite]
+    threat_surface:
+      - category: agent-framework
+        relation: enablement          # marketing agents/personalization raise Experience Cloud value
+  - id: publishing_advertising
+    name: Publishing and Advertising
+    share_of_revenue: 0.02
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Creative-professional standard + file-format lock-in; Firefly commercially-safe generative models;
+  integrated content-to-marketing suite.
+sensitivity_notes: >
+  Generative media is the defining dual-edge: Firefly monetizes it inside the suite, but free/cheap
+  external generation contests the entry funnel and prosumer tier. Watch Firefly attach + Creative
+  net-new subscriber trends against generative-AI substitutes.
+updated: 2026-07-01

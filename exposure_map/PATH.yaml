@@ -1,0 +1,39 @@
+# exposure_map/PATH.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: PATH
+name: UiPath Inc.
+cik: "0001734722"
+sector: software-application
+revenue_lines:
+  - id: subscription_services
+    name: Subscription services (maintenance + support on term licenses)
+    share_of_revenue: 0.52
+    source: "first-pass approximate (subscription services the largest line); verify vs 10-K"
+    depends_on: [rpa-install-base, agentic-automation]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # LLM agents can supplant brittle rule-based RPA even as UiPath ships agentic AI (dual-edged, core)
+        core: true
+      - category: workflow-orchestration
+        relation: enablement          # orchestrating agents + robots together raises platform value
+  - id: licenses
+    name: Licenses (term license upfront)
+    share_of_revenue: 0.42
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: [automation-seats]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # agentic automation could compress classic RPA license demand
+  - id: services
+    name: Professional services and other
+    share_of_revenue: 0.06
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Large RPA install base + enterprise automation footprint; pivot to agentic automation
+  (Autopilot/agents) layered on existing orchestration and governance.
+sensitivity_notes: >
+  The sharpest dual-edge in the roster: LLM agents both threaten deterministic RPA and are the growth
+  vector if UiPath owns the agentic layer. Net direction is genuinely two-sided — watch agentic-product
+  ARR + net retention vs. classic RPA erosion.
+updated: 2026-07-01

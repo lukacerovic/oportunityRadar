@@ -1,0 +1,33 @@
+# exposure_map/DDOG.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: DDOG
+name: Datadog, Inc.
+cik: "0001561550"
+sector: software-infrastructure
+revenue_lines:
+  - id: subscription
+    name: Subscription (observability platform, usage-based)
+    share_of_revenue: 0.98
+    source: "first-pass approximate (subscription ~98% of revenue); verify vs 10-K"
+    depends_on: [cloud-workload-growth, ai-native-customers, llm-observability]
+    threat_surface:
+      - category: observability
+        relation: enablement          # LLM/AI observability is a new product surface + usage driver
+        core: true
+      - category: distributed-systems
+        relation: enablement          # AI compute growth expands monitored infrastructure + telemetry volume
+      - category: agent-framework
+        relation: substitution_partial # AI-native/agentic observability entrants contest the platform
+  - id: professional_services
+    name: Professional services and other
+    share_of_revenue: 0.02
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Unified multi-product observability platform; land-and-expand usage model; strong footprint among
+  cloud-native and AI-native companies.
+sensitivity_notes: >
+  Broadly AI-positive: more AI infrastructure and LLM apps mean more telemetry to monitor, plus new
+  LLM-observability SKUs. The risk is AI-native monitoring entrants + customer cost optimization.
+  Watch usage growth from AI-native cohort + new-product attach.
+updated: 2026-07-01

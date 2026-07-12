@@ -1,0 +1,33 @@
+# exposure_map/U.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: U
+name: Unity Software Inc.
+cik: "0001488549"
+sector: software-application
+revenue_lines:
+  - id: grow_solutions
+    name: Grow Solutions (advertising / monetization)
+    share_of_revenue: 0.58
+    source: "first-pass approximate (Grow/advertising the larger segment post-restructuring); verify vs 10-K segment note"
+    depends_on: [ad-network, mobile-game-monetization]
+    threat_surface:
+      - category: multimodal-model
+        relation: enablement          # generative ad creative + optimization can lift monetization
+        core: true
+  - id: create_solutions
+    name: Create Solutions (engine subscriptions + services)
+    share_of_revenue: 0.42
+    source: "first-pass approximate (Create ~40% post-restructuring); verify vs 10-K segment note"
+    depends_on: [engine-subscriptions, realtime-3d]
+    threat_surface:
+      - category: multimodal-model
+        relation: substitution_partial # generative 3D/asset/scene tools contest parts of the content pipeline (dual-edged)
+      - category: app-builder
+        relation: substitution_partial # AI game/app generation pressures the low end of engine adoption
+moat_notes: >
+  Dominant real-time 3D engine for mobile games with a large developer base; combined create +
+  monetization loop; generative tooling to speed asset/content creation.
+sensitivity_notes: >
+  Generative AI is dual-edged for Create (faster content vs. new asset-generation substitutes) and a
+  tailwind for Grow (AI-optimized ad creative/bidding). Net direction hinges on engine retention +
+  ad-network performance. Watch Create subscriber trends + Grow take-rate.
+updated: 2026-07-01

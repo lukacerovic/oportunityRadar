@@ -86,6 +86,15 @@ def test_hf_arxiv_tag_yields_r2_reference() -> None:
     assert refs[0].rule == "R2"
 
 
+def test_github_readme_text_yields_r1_arxiv_reference() -> None:
+    # A repo_readme enrichment event carries the body under `text`; its arXiv citation must link
+    # the repo to the paper (R1). Without this, GH-Archive-seeded repos are identity islands.
+    payload = {"text": "# DeepSeek-V2\n\nSee our paper: https://arxiv.org/abs/2405.04434"}
+    refs = references("github", payload)
+    assert [r.anchor_key for r in refs] == ["arxiv:2405.04434"]
+    assert refs[0].rule == "R1"
+
+
 def test_pypi_project_urls_yield_r3_github_reference() -> None:
     payload = {"project_urls": {"Repository": "https://github.com/vllm-project/vllm"}}
     refs = references("pypi", payload)

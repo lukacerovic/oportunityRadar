@@ -1,0 +1,35 @@
+# exposure_map/CRWD.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: CRWD
+name: CrowdStrike Holdings, Inc.
+cik: "0001535527"
+sector: software-security
+revenue_lines:
+  - id: subscription
+    name: Subscription (Falcon platform modules)
+    share_of_revenue: 0.94
+    source: "first-pass approximate (subscription ~94% of revenue); verify vs 10-K"
+    depends_on: [endpoint-install-base, module-attach, charlotte-ai]
+    threat_surface:
+      - category: ai-security
+        relation: enablement          # AI-driven detection + securing customers' AI usage is a core module driver
+        core: true
+      - category: guardrails
+        relation: enablement          # securing/monitoring LLM apps and agents expands the platform
+      - category: agent-framework
+        relation: substitution_partial # AI-native/autonomous-SOC entrants contest parts of the SOC workflow
+      - category: observability
+        relation: enablement          # security data + AI analytics attach (next-gen SIEM/LogScale)
+  - id: professional_services
+    name: Professional services
+    share_of_revenue: 0.06
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Single-agent Falcon platform with broad module attach; large telemetry graph feeding AI detection;
+  land-and-expand across security workloads (endpoint, cloud, identity, SIEM).
+sensitivity_notes: >
+  Predominantly AI-positive: AI raises detection efficacy, and securing customers' own AI/agents is a
+  new demand surface. The risk is AI-native SOC automation entrants + budget consolidation. Watch
+  module attach (Charlotte AI, next-gen SIEM) + net retention.
+updated: 2026-07-01

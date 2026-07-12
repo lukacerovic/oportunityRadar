@@ -1,0 +1,35 @@
+# exposure_map/TEAM.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: TEAM
+name: Atlassian Corporation
+cik: "0001650372"
+sector: software-application
+revenue_lines:
+  - id: subscription
+    name: Subscription (cloud)
+    share_of_revenue: 0.85
+    source: "first-pass approximate (cloud subscription is the large + growing majority); verify vs 10-K"
+    depends_on: [cloud-migration, rovo-ai-attach, dev-team-seats]
+    threat_surface:
+      - category: code-assistant
+        relation: substitution_partial # AI coding tools can deflect issue/PR seats even as Rovo monetizes AI (dual-edged)
+        core: true
+      - category: agent-framework
+        relation: enablement          # Rovo agents over Jira/Confluence raise platform value
+      - category: rag-framework
+        relation: enablement          # search/assistants over team knowledge (Confluence)
+      - category: app-builder
+        relation: substitution_partial # AI app/workflow generation pressures the low end
+  - id: other
+    name: Maintenance, Marketplace and Services
+    share_of_revenue: 0.15
+    source: "first-pass approximate (data center maintenance + marketplace + services); verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Bottoms-up developer adoption; Jira/Confluence workflow lock-in; marketplace ecosystem; Rovo as
+  the cross-product AI layer.
+sensitivity_notes: >
+  Seat-based dev tooling is dual-edged against AI coding assistants — Rovo consumption vs seat
+  deflection. Net direction turns on AI attach outpacing any seat compression. Watch cloud NRR +
+  Rovo adoption.
+updated: 2026-07-01

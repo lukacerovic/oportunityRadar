@@ -1,0 +1,37 @@
+# exposure_map/PLTR.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: PLTR
+name: Palantir Technologies Inc.
+cik: "0001321655"
+sector: software-application
+revenue_lines:
+  - id: commercial
+    name: Commercial (Foundry + AIP)
+    share_of_revenue: 0.48
+    source: "first-pass approximate (commercial ~half and fast-growing, US-led); verify vs 10-K"
+    depends_on: [aip-adoption, enterprise-ai-deployment]
+    threat_surface:
+      - category: agent-framework
+        relation: enablement          # AIP operationalizes LLM agents on enterprise data (core tailwind)
+        core: true
+      - category: rag-framework
+        relation: enablement          # ontology-grounded retrieval/assistants
+      - category: workflow-orchestration
+        relation: enablement          # AI-driven operational workflows on Foundry
+      - category: app-builder
+        relation: substitution_partial # generic AI app builders contest lighter deployments over time
+  - id: government
+    name: Government
+    share_of_revenue: 0.52
+    source: "first-pass approximate (government ~half, share drifting down as commercial grows); verify vs 10-K"
+    depends_on: [defense-programs]
+    threat_surface:
+      - category: agent-framework
+        relation: enablement          # mission AI/decision support expands program scope
+moat_notes: >
+  Ontology + integration depth on messy enterprise/government data; AIP as the operational LLM layer;
+  sticky, expanding deployments and strong government relationships.
+sensitivity_notes: >
+  A clear AI-demand beneficiary via AIP; the main risks are deployment-cost/services intensity and,
+  longer-term, commoditized AI app builders contesting lighter use cases. Watch commercial customer
+  count + AIP-driven net expansion.
+updated: 2026-07-01

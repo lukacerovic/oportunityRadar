@@ -1,0 +1,41 @@
+# exposure_map/MDB.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: MDB
+name: MongoDB, Inc.
+cik: "0001441816"
+sector: software-infrastructure
+revenue_lines:
+  - id: atlas
+    name: Atlas (cloud database, consumption)
+    share_of_revenue: 0.70
+    source: "first-pass approximate (Atlas ~70% of revenue and rising); verify vs 10-K"
+    depends_on: [cloud-consumption, vector-search-attach, ai-app-workloads]
+    threat_surface:
+      - category: vector-db
+        relation: substitution_partial # Atlas Vector Search grows consumption, but dedicated vector DBs contest it (dual-edged)
+        core: true
+      - category: rag-framework
+        relation: enablement          # operational-data RAG grows Atlas consumption
+      - category: embedding-model
+        relation: enablement          # embeddings stored/queried alongside operational data
+      - category: data-pipeline
+        relation: substitution_partial # rival document/lakehouse stacks contest the workload
+  - id: enterprise_advanced
+    name: Enterprise Advanced + other subscription (self-managed)
+    share_of_revenue: 0.27
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+  - id: services
+    name: Services
+    share_of_revenue: 0.03
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Developer-loved document model; Atlas multi-cloud reach; vector search folded into the operational
+  database (one system for app data + embeddings).
+sensitivity_notes: >
+  AI is a consumption tailwind (RAG + vector search inside Atlas), but the vector workload can also
+  leak to purpose-built vector databases. Net direction turns on whether integrated vector search
+  retains AI app workloads. Watch Atlas consumption growth + vector-search attach.
+updated: 2026-07-01

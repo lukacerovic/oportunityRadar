@@ -84,7 +84,7 @@ def default_loader(session: Session, case: Case, warnings: list[str]) -> None:
     gaps, not silently skipped."""
     from seismo.collectors.backfill_gharchive import backfill
     from seismo.collectors.base import Window
-    from seismo.hindcast.loaders import load_arxiv, load_hn
+    from seismo.hindcast.loaders import load_arxiv, load_github_readmes, load_hf, load_hn
 
     window = Window(since=_end_of_day(case.window.from_), until=_end_of_day(case.window.to))
 
@@ -97,6 +97,11 @@ def default_loader(session: Session, case: Case, warnings: list[str]) -> None:
         n_arxiv = load_arxiv(session, case.seeds.arxiv)
         warnings.append(f"arXiv: loaded {n_arxiv} seed paper(s) {case.seeds.arxiv}.")
 
+    # Hugging Face — org-scoped fetch; createdAt is natively historical (identity + maturity rung).
+    if case.seeds.hf_orgs:
+        n_hf = load_hf(session, case.seeds.hf_orgs, window)
+        warnings.append(f"Hugging Face: loaded {n_hf} model(s) for orgs {case.seeds.hf_orgs}.")
+
     # GitHub star history — HEAVY firehose; only worth it for a pinned case.
     if case.seeds.github:
         warnings.append(
@@ -107,9 +112,12 @@ def default_loader(session: Session, case: Case, warnings: list[str]) -> None:
         targets = {t.lower() for t in case.seeds.github}
         n = backfill(window, targets)
         warnings.append(f"GH Archive backfill inserted {n} star/discovery events.")
+        # The bare backfill can't link the repo to its paper/model — fetch READMEs (cite the arXiv
+        # id → R1) so identity unifies. Cheap (one call per repo), unlike the star firehose above.
+        n_readme = load_github_readmes(session, case.seeds.github, window)
+        warnings.append(f"GitHub: enriched {n_readme} seed repo README(s) for identity resolution.")
 
     for label, seeds in (
-        ("Hugging Face createdAt + downloads", case.seeds.hf_orgs),
         ("Wayback pricing", case.seeds.wayback),
         ("PyPI BigQuery", case.seeds.pypi),
     ):

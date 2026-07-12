@@ -1,0 +1,41 @@
+# exposure_map/ORCL.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: ORCL
+name: Oracle Corporation
+cik: "0001341439"
+sector: software-infrastructure
+revenue_lines:
+  - id: cloud_services_support
+    name: Cloud services and license support (incl. OCI + SaaS)
+    share_of_revenue: 0.75
+    source: "first-pass approximate (cloud services & license support ~3/4 of revenue); verify vs 10-K"
+    depends_on: [oci-ai-training-capacity, saas-attach]
+    threat_surface:
+      - category: model-foundation
+        relation: enablement          # OCI GPU capacity contracted for frontier training/inference
+        core: true
+      - category: distributed-systems
+        relation: enablement          # RDMA cluster networking as an AI-cloud differentiator
+      - category: agent-framework
+        relation: substitution_partial # AI agents pressure seat-based Fusion/NetSuite apps
+  - id: cloud_license_onprem
+    name: Cloud license and on-premise license
+    share_of_revenue: 0.10
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface:
+      - category: data-pipeline
+        relation: substitution_partial # cloud-native data stacks contest the legacy database estate
+  - id: hardware_services
+    name: Hardware + Services
+    share_of_revenue: 0.15
+    source: "first-pass approximate (hardware + services combined); verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Sticky database + mission-critical app install base; aggressive OCI AI-capacity buildout with
+  large training backlog; multicloud database partnerships.
+sensitivity_notes: >
+  A late but fast AI-cloud entrant: OCI capacity backlog is the upside, while the legacy database and
+  seat-based apps carry substitution risk from cloud-native stacks and agentic software. Watch OCI
+  RPO/backlog conversion + capex intensity.
+updated: 2026-07-01

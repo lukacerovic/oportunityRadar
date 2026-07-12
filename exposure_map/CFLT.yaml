@@ -1,0 +1,41 @@
+# exposure_map/CFLT.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: CFLT
+name: Confluent, Inc.
+cik: "0001699838"
+sector: software-infrastructure
+revenue_lines:
+  - id: confluent_cloud
+    name: Confluent Cloud (consumption)
+    share_of_revenue: 0.58
+    source: "first-pass approximate (Cloud the majority + fast-growing); verify vs 10-K"
+    depends_on: [streaming-consumption, real-time-ai-context]
+    threat_surface:
+      - category: data-pipeline
+        relation: enablement          # real-time streaming feeds RAG/agents fresh context (core thesis)
+        core: true
+      - category: rag-framework
+        relation: enablement          # streaming data as the freshness layer for retrieval
+      - category: agent-runtime
+        relation: enablement          # event-driven agents consume/emit streams
+  - id: confluent_platform
+    name: Confluent Platform (self-managed subscription)
+    share_of_revenue: 0.36
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface:
+      - category: data-pipeline
+        relation: substitution_partial # open-source Kafka + rival streaming stacks contest self-managed
+  - id: services
+    name: Services
+    share_of_revenue: 0.06
+    source: "first-pass approximate; verify vs 10-K"
+    depends_on: []
+    threat_surface: []
+moat_notes: >
+  Stewards of Kafka with a cloud-native managed platform; data-in-motion positioning; Flink stream
+  processing for real-time AI context.
+sensitivity_notes: >
+  AI-positive as real-time streaming becomes the freshness/context layer for RAG and agents, offset
+  by open-source Kafka pressure on the self-managed line. Watch Cloud consumption growth + AI-use-case
+  attach vs DIY Kafka.
+updated: 2026-07-01

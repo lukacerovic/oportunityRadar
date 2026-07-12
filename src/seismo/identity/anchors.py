@@ -159,7 +159,9 @@ def references(source: str, payload: dict[str, Any]) -> list[Reference]:
         # R1 URL-exact: the repo's own metadata cites the paper / package canonical URL.
         homepage = payload.get("homepage") or ""
         desc = payload.get("description") or ""
-        readme = payload.get("readme") or ""  # populated by deep-poll later; safe if absent
+        # ``readme`` is the legacy key; a ``repo_readme`` enrichment event (§16) carries the body
+        # under ``text`` — read both so a README's arXiv citation links the repo to its paper.
+        readme = payload.get("readme") or payload.get("text") or ""
         blob = f"{homepage}\n{desc}\n{readme}"
         for m in _ARXIV_ID.finditer(blob):
             aid = m.group(1)

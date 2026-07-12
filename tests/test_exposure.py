@@ -1,6 +1,6 @@
 """Exposure-map loader (doc 08 §1, doc 13 A-1) — schema validation, reach_link derivation, and the
 authoritative DB rebuild. Parsing tests are pure; load tests run against real Postgres (rolled
-back), including the 8 real YAML files in ``exposure_map/``."""
+back), including the real company files in ``exposure_map/`` (the curated 30-company roster)."""
 
 from __future__ import annotations
 
@@ -124,18 +124,20 @@ def test_all_real_map_files_are_valid() -> None:
 
 
 def test_load_map_populates_and_is_idempotent(clean_db: Session) -> None:
+    expected = len(sorted(REPO_MAP_DIR.glob("*.yaml")))  # one company per file (future-proof)
     first = load_map(clean_db, REPO_MAP_DIR)
     clean_db.flush()
     assert first.errors == []
-    assert first.companies == 8
+    assert first.companies == expected
     assert first.reach_links > 0
     companies = clean_db.execute(text("SELECT COUNT(*) FROM exposure_companies")).scalar_one()
     links = clean_db.execute(text("SELECT COUNT(*) FROM reach_links")).scalar_one()
-    assert companies == 8
+    assert companies == expected
 
     second = load_map(clean_db, REPO_MAP_DIR)  # re-load = same shape, no growth
     clean_db.flush()
-    assert clean_db.execute(text("SELECT COUNT(*) FROM exposure_companies")).scalar_one() == 8
+    n_companies = clean_db.execute(text("SELECT COUNT(*) FROM exposure_companies")).scalar_one()
+    assert n_companies == expected
     assert clean_db.execute(text("SELECT COUNT(*) FROM reach_links")).scalar_one() == links
     assert second.reach_links == first.reach_links
 

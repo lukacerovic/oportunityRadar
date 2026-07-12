@@ -1,0 +1,35 @@
+# exposure_map/SHOP.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: SHOP
+name: Shopify Inc.
+cik: "0001594805"
+sector: software-application
+revenue_lines:
+  - id: merchant_solutions
+    name: Merchant Solutions (payments, capital, shipping, ads)
+    share_of_revenue: 0.74
+    source: "first-pass approximate (Merchant Solutions ~3/4 of revenue); verify vs 10-K"
+    depends_on: [gmv, payments-attach, agentic-commerce]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # AI shopping agents may reroute discovery/checkout around merchant storefronts (dual-edged)
+        core: true
+      - category: multimodal-model
+        relation: enablement          # generative product content/imagery raises conversion + Sidekick value
+      - category: app-builder
+        relation: enablement          # AI store/app generation lowers merchant onboarding friction
+  - id: subscription_solutions
+    name: Subscription Solutions (platform subscriptions)
+    share_of_revenue: 0.26
+    source: "first-pass approximate (Subscription Solutions ~1/4 of revenue); verify vs 10-K"
+    depends_on: [merchant-count]
+    threat_surface:
+      - category: app-builder
+        relation: enablement          # faster store creation grows the merchant base
+moat_notes: >
+  Merchant operating system with deep payments/logistics attach; large app + partner ecosystem;
+  agentic-commerce and AI tooling (Sidekick, catalog) to raise merchant GMV.
+sensitivity_notes: >
+  Dual-edged on agentic commerce: AI agents can grow conversion and merchant productivity, but could
+  also disintermediate the storefront if buyers transact through third-party AI agents. Watch GMV +
+  payments attach + how agentic checkout routes demand.
+updated: 2026-07-01

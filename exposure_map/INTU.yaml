@@ -1,0 +1,41 @@
+# exposure_map/INTU.yaml — first-pass slice (doc 08 §1). VERIFY figures vs 10-K.
+ticker: INTU
+name: Intuit Inc.
+cik: "0000896878"
+sector: software-application
+revenue_lines:
+  - id: small_business
+    name: Global Business Solutions (QuickBooks, Mailchimp)
+    share_of_revenue: 0.58
+    source: "first-pass approximate (Small Business & Self-Employed largest segment); verify vs 10-K segment note"
+    depends_on: [smb-saas, ai-agent-attach]
+    threat_surface:
+      - category: agent-framework
+        relation: enablement          # AI agents for accounting/marketing raise ARPC (dual-edged)
+        core: true
+      - category: app-builder
+        relation: substitution_partial # AI-native SMB finance/marketing tools contest the low end
+  - id: consumer
+    name: Consumer (TurboTax)
+    share_of_revenue: 0.28
+    source: "first-pass approximate (Consumer group ~28%); verify vs 10-K segment note"
+    depends_on: [diy-tax-prep]
+    threat_surface:
+      - category: agent-framework
+        relation: substitution_partial # general-purpose AI assistants could erode DIY tax-prep willingness-to-pay
+  - id: credit_karma_protax
+    name: Credit Karma + ProTax
+    share_of_revenue: 0.14
+    source: "first-pass approximate (Credit Karma + ProConnect combined); verify vs 10-K segment note"
+    depends_on: []
+    threat_surface:
+      - category: rag-framework
+        relation: enablement          # AI-guided recommendations raise Credit Karma engagement/monetization
+moat_notes: >
+  Category-leading SMB + consumer finance franchises; proprietary financial data for AI features;
+  distribution scale and trust in regulated workflows.
+sensitivity_notes: >
+  AI is dual-edged: Intuit Assist can lift ARPC across QuickBooks/TurboTax, but commoditized
+  AI assistants could erode the DIY willingness-to-pay, especially in Consumer tax. Watch AI-driven
+  ARPC + Consumer unit/price trends.
+updated: 2026-07-01

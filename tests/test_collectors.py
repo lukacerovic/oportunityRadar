@@ -10,6 +10,7 @@ from seismo.collectors.arxiv import ArxivCollector
 from seismo.collectors.backfill_gharchive import filter_events, hourly_stamps
 from seismo.collectors.base import RawEventDraft, TrackTarget, Window
 from seismo.collectors.github import GitHubCollector
+from seismo.collectors.hf import HuggingFaceCollector
 from seismo.collectors.hn import HackerNewsCollector
 from seismo.collectors.runner import persist_drafts, run_collector
 
@@ -209,6 +210,113 @@ def test_arxiv_fetch_ids_empty_makes_no_request() -> None:
         raise AssertionError("fetch_ids([]) must not hit the network")
 
     assert ArxivCollector(client=_client(handler), min_interval_s=0).fetch_ids([]) == []
+
+
+# --- Hugging Face parsing ---------------------------------------------------
+
+
+def _hf_model(model_id: str, created: datetime, **extra: object) -> dict:
+    return {"id": model_id, "createdAt": created.isoformat().replace("+00:00", "Z"), **extra}
+
+
+def test_hf_discover_filters_by_window_and_relevance_across_cursor() -> None:
+    """createdAt window + relevance (traction AND modality), paginating the Link-header cursor.
+
+    Relevance needs BOTH real traction (downloads/likes) and a relevant modality (pipeline or
+    keyword) — a no-traction clone that merely inherits ``text-generation`` is noise, and a
+    high-download model in an off-topic modality isn't the usage signal we track."""
+    page1 = [
+        # after `until` → excluded regardless of traction
+        _hf_model(
+            "acme/too-new", NOW + timedelta(days=1), pipeline_tag="text-generation", likes=99
+        ),
+        # traction + relevant pipeline → kept
+        _hf_model(
+            "acme/llm-chat", NOW - timedelta(days=1), pipeline_tag="text-generation", downloads=5000
+        ),
+        # traction but off-topic modality → dropped
+        _hf_model(
+            "acme/big-vision",
+            NOW - timedelta(days=1),
+            pipeline_tag="image-segmentation",
+            downloads=9000,
+        ),
+        # relevant pipeline but no traction → dropped
+        _hf_model(
+            "acme/empty-clone", NOW - timedelta(days=1), pipeline_tag="text-generation", downloads=5
+        ),
+    ]
+    page2 = [
+        # traction (likes) + keyword in tags → kept
+        _hf_model("acme/agent-tool", NOW - timedelta(hours=6), tags=["agent"], likes=40),
+        # before `since` → excluded
+        _hf_model(
+            "acme/way-old", NOW - timedelta(days=30), pipeline_tag="text-generation", downloads=9e9
+        ),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "cursor" not in str(request.url):
+            return httpx.Response(
+                200, json=page1, headers={"Link": '<https://hf/api/models?cursor=X>; rel="next"'}
+            )
+        return httpx.Response(200, json=page2)  # no Link → last page
+
+    drafts = HuggingFaceCollector(client=_client(handler), min_interval_s=0).discover(WINDOW)
+    captured = {d.source_event_uid for d in drafts}
+    assert captured == {
+        "model_discovered:acme/llm-chat",
+        "model_discovered:acme/agent-tool",
+    }
+    assert all(d.source == "hf" and d.event_type == "model_discovered" for d in drafts)
+
+
+def test_hf_fetch_by_author_keeps_created_at() -> None:
+    """The hindcast seed path: list an org's models, preserving each model's real birth date."""
+    born = datetime(2024, 5, 1, tzinfo=UTC)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get("author") == "deepseek-ai"
+        return httpx.Response(200, json=[_hf_model("deepseek-ai/DeepSeek-V2", born, downloads=10)])
+
+    drafts = HuggingFaceCollector(client=_client(handler), min_interval_s=0).fetch_by_author(
+        ["deepseek-ai"]
+    )
+    assert len(drafts) == 1
+    assert drafts[0].source_event_uid == "model_discovered:deepseek-ai/deepseek-v2"
+    assert drafts[0].occurred_at == born
+
+
+def test_hf_track_snapshots_downloads_and_skips_gone() -> None:
+    """A gated/deleted model (401/404) skips that target; a live one yields a downloads snapshot."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "gone/model" in str(request.url):
+            return httpx.Response(404, json={"error": "Repo not found"})
+        return httpx.Response(200, json={"id": "live/model", "downloads": 4200, "likes": 30})
+
+    targets = [
+        TrackTarget(entity_id=1, source="hf", native_id="gone/model"),
+        TrackTarget(entity_id=2, source="hf", native_id="live/model"),
+    ]
+    drafts = HuggingFaceCollector(client=_client(handler), min_interval_s=0).track(targets, WINDOW)
+    assert len(drafts) == 1
+    assert drafts[0].event_type == "model_snapshot"
+    assert drafts[0].payload["downloads"] == 4200
+
+
+def test_hf_track_skips_transient_network_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "flaky/model" in str(request.url):
+            raise httpx.RemoteProtocolError("server disconnected")
+        return httpx.Response(200, json={"id": "live/model", "downloads": 7, "likes": 1})
+
+    targets = [
+        TrackTarget(entity_id=1, source="hf", native_id="flaky/model"),
+        TrackTarget(entity_id=2, source="hf", native_id="live/model"),
+    ]
+    drafts = HuggingFaceCollector(client=_client(handler), min_interval_s=0).track(targets, WINDOW)
+    assert len(drafts) == 1 and drafts[0].payload["downloads"] == 7
 
 
 # --- backfill filter (pure) -------------------------------------------------

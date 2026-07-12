@@ -33,7 +33,7 @@ from seismo.hindcast.case import (
     load_case,
     load_case_by_name,
 )
-from seismo.hindcast.loaders import load_arxiv, load_hn
+from seismo.hindcast.loaders import load_arxiv, load_github_readmes, load_hn
 from seismo.hindcast.runner import run_hindcast
 
 _UID = itertools.count(1)
@@ -297,6 +297,39 @@ def test_momentum_not_reached_fails(db_session: Session) -> None:
     _momentum(db_session, eid, date(2024, 5, 20), "simmering")
     r = _eval(db_session, _assn("momentum", entity="github:a/flat", states=["breakout"]))
     assert not r.passed and "never reached" in r.detail
+
+
+def test_momentum_never_passes_when_below_ceiling(db_session: Session) -> None:
+    # mode=never: a flop that peaks at simmering must PASS "never reached accelerating/breakout".
+    eid = _entity(db_session, anchors={"hf": "org/flop"}, created=BORN)
+    _momentum(db_session, eid, date(2024, 5, 10), "simmering")
+    r = _eval(
+        db_session,
+        _assn("momentum", entity="hf:org/flop", mode="never", states=["accelerating", "breakout"]),
+    )
+    assert r.passed and "never reached" in r.detail
+
+
+def test_momentum_never_fails_when_ceiling_breached(db_session: Session) -> None:
+    # mode=never must FAIL if the entity did reach a forbidden state.
+    eid = _entity(db_session, anchors={"hf": "org/hot"}, created=BORN)
+    _momentum(db_session, eid, date(2024, 5, 10), "accelerating")
+    r = _eval(
+        db_session,
+        _assn("momentum", entity="hf:org/hot", mode="never", states=["accelerating", "breakout"]),
+    )
+    assert not r.passed and "forbidden" in r.detail
+
+
+def test_momentum_never_fails_without_history(db_session: Session) -> None:
+    # mode=never can't pass vacuously: an entity with no momentum rows is not gradable.
+    eid = _entity(db_session, anchors={"hf": "org/empty"}, created=BORN)
+    assert eid  # resolves, but has no momentum_states rows
+    r = _eval(
+        db_session,
+        _assn("momentum", entity="hf:org/empty", mode="never", states=["breakout"]),
+    )
+    assert not r.passed and "no momentum rows" in r.detail
 
 
 def test_momentum_respects_as_of_bound(db_session: Session) -> None:
@@ -576,11 +609,56 @@ class _FakeArxiv:
         ]
 
 
+class _FakeGitHubReadme:
+    """Records which repos were asked for; returns a now-dated README draft per target (like the
+    real collector, whose enrichment events are ``occurred_at=now()``)."""
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    def readmes(self, targets: list[object], window: Window) -> list[RawEventDraft]:
+        self.asked = [t.native_id for t in targets]  # type: ignore[attr-defined]
+        return [
+            RawEventDraft(
+                source="github",
+                source_event_uid=f"repo_readme:{t.native_id}",  # type: ignore[attr-defined]
+                event_type="repo_readme",
+                occurred_at=datetime(2026, 7, 11, tzinfo=UTC),  # "now" — must be backdated
+                payload={"full_name": t.native_id, "text": "cites arxiv:0000.00002"},  # type: ignore[attr-defined]
+            )
+            for t in targets
+        ]
+
+
+def test_load_github_readmes_filters_orgs_and_backdates(db_session: Session) -> None:
+    fake = _FakeGitHubReadme()
+    win = Window(since=datetime(2024, 1, 1, tzinfo=UTC), until=datetime(2024, 7, 31, tzinfo=UTC))
+    # a bare org handle has no README — only owner/repo seeds are fetched
+    n = load_github_readmes(
+        db_session, ["zz-testorg/zz-testrepo", "zz-testorg"], win, collector=fake
+    )
+    db_session.flush()
+    assert n == 1 and fake.asked == ["zz-testorg/zz-testrepo"]
+    row = db_session.execute(
+        text(
+            "SELECT origin, occurred_at FROM raw_events WHERE source = 'github' "
+            "AND source_event_uid = 'repo_readme:zz-testorg/zz-testrepo'"
+        )
+    ).first()
+    assert row is not None
+    assert row[0] == "backfill"
+    # backdated to window.since so the R1 merge it justifies is visible at a past hindcast as-of
+    assert row[1] == win.since
+
+
+def test_load_github_readmes_no_repo_seeds_is_noop(db_session: Session) -> None:
+    win = Window(since=datetime(2024, 1, 1, tzinfo=UTC), until=datetime(2024, 7, 31, tzinfo=UTC))
+    assert load_github_readmes(db_session, ["just-an-org"], win, collector=_FakeGitHubReadme()) == 0
+
+
 def test_load_hn_points_collector_at_window_and_marks_backfill(db_session: Session) -> None:
     fake = _FakeHN()
-    win = Window(
-        since=datetime(2024, 9, 1, tzinfo=UTC), until=datetime(2024, 9, 30, tzinfo=UTC)
-    )
+    win = Window(since=datetime(2024, 9, 1, tzinfo=UTC), until=datetime(2024, 9, 30, tzinfo=UTC))
     n = load_hn(db_session, win, collector=fake)
     db_session.flush()
     assert n == 1 and fake.window == win  # the loader passed the case window through
@@ -598,8 +676,10 @@ def test_load_arxiv_fetches_seed_ids_and_marks_backfill(db_session: Session) -> 
     db_session.flush()
     assert n == 1 and fake.ids == ["0000.00001"]
     row = db_session.execute(
-        text("SELECT origin, event_type FROM raw_events WHERE source = 'arxiv' "
-             "AND source_event_uid = '0000.00001'")
+        text(
+            "SELECT origin, event_type FROM raw_events WHERE source = 'arxiv' "
+            "AND source_event_uid = '0000.00001'"
+        )
     ).first()
     assert row is not None and row[0] == "backfill" and row[1] == "paper_published"
 
@@ -609,9 +689,7 @@ def test_load_arxiv_empty_is_a_noop(db_session: Session) -> None:
 
 
 def test_loaders_are_idempotent(db_session: Session) -> None:
-    win = Window(
-        since=datetime(2024, 9, 1, tzinfo=UTC), until=datetime(2024, 9, 30, tzinfo=UTC)
-    )
+    win = Window(since=datetime(2024, 9, 1, tzinfo=UTC), until=datetime(2024, 9, 30, tzinfo=UTC))
     assert load_hn(db_session, win, collector=_FakeHN()) == 1
     db_session.flush()
     assert load_hn(db_session, win, collector=_FakeHN()) == 0  # same natural key → no dupe
