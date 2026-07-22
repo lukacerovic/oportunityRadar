@@ -86,24 +86,32 @@ def enrich_readmes(
     carded_only: bool = typer.Option(
         False, "--carded-only", help="Only repos that already have a comprehension card (§16 win)."
     ),
+    missing: bool = typer.Option(
+        False, "--missing", help="Only repos with NO README yet — self-completing daily coverage."
+    ),
 ) -> None:
     """Enrichment (§16) — fetch repo READMEs as ``repo_readme`` events so comprehension packs are
     substantial, not just the one-line GitHub description. Fetch is per-repo rate-limited (5000/hr
-    authenticated); scope with ``--limit`` / ``--carded-only`` — do not blast the full universe.
-    Run ``resolve`` then ``comprehend`` after to regenerate the enriched cards."""
+    authenticated); scope with ``--limit`` / ``--carded-only`` / ``--missing`` — do not blast the
+    full universe. Run ``resolve`` then ``comprehend`` after to regenerate the enriched cards."""
     from seismo.collectors.base import Window
     from seismo.collectors.github import GitHubCollector
     from seismo.collectors.runner import persist_drafts
-    from seismo.collectors.targets import select_carded_targets, select_targets
+    from seismo.collectors.targets import (
+        select_carded_targets,
+        select_targets,
+        select_unenriched_targets,
+    )
     from seismo.db import session_scope
 
     with record_pipeline_run("enrich-readmes"):
         with session_scope() as session:
-            targets = (
-                select_carded_targets(session, "github", limit=limit)
-                if carded_only
-                else select_targets(session, "github", limit=limit)
-            )
+            if missing:
+                targets = select_unenriched_targets(session, "github", "repo_readme", limit=limit)
+            elif carded_only:
+                targets = select_carded_targets(session, "github", limit=limit)
+            else:
+                targets = select_targets(session, "github", limit=limit)
         # Fetch outside any open transaction (the poll can take minutes over many repos).
         drafts = GitHubCollector().readmes(targets, Window.last(1.0))
         with session_scope() as session:
@@ -111,6 +119,79 @@ def enrich_readmes(
         typer.echo(
             f"[enrich-readmes] {len(targets)} repos → {len(drafts)} READMEs, {new} new events "
             f"(run `seismo resolve` then `seismo comprehend` to regenerate cards)"
+        )
+
+
+@app.command(name="enrich-launches")
+def enrich_launches(
+    limit: int = typer.Option(None, help="Cap the number of launches to enrich (rate budget)."),
+) -> None:
+    """Enrichment (Wave-3) — fetch the launch page behind each HN-native launch (``web``-anchored
+    entity like Kimi) as a ``launch_page`` event, so its comprehension card has real content
+    instead of just a headline. Best-effort: JS-only / paywalled pages are skipped. Run ``resolve``
+    then ``comprehend`` after to card the enriched launches."""
+    from seismo.collectors.launches import LaunchEnricher, select_launch_targets
+    from seismo.collectors.runner import persist_drafts
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-launches"):
+        with session_scope() as session:
+            targets = select_launch_targets(session, limit=limit)
+        # Fetch outside any open transaction (the page fetches can take a while over many URLs).
+        drafts = LaunchEnricher().fetch(targets)
+        with session_scope() as session:
+            new = persist_drafts(session, drafts)
+        typer.echo(
+            f"[enrich-launches] {len(targets)} launches → {len(drafts)} pages, {new} new events "
+            f"(run `seismo resolve` then `seismo comprehend` to card them)"
+        )
+
+
+@app.command(name="enrich-hf")
+def enrich_hf(
+    limit: int = typer.Option(None, help="Cap the number of models to enrich (rate budget)."),
+) -> None:
+    """Enrichment (Wave-3) — fetch each Hugging Face model's card (README) as a ``model_readme``
+    event, so HF models have readable content to comprehend instead of just download counts.
+    Targets models with no card yet (self-completing). Run ``resolve`` then ``comprehend`` after."""
+    from seismo.collectors.hf import HuggingFaceCollector
+    from seismo.collectors.runner import persist_drafts
+    from seismo.collectors.targets import select_unenriched_targets
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-hf"):
+        with session_scope() as session:
+            targets = select_unenriched_targets(session, "hf", "model_readme", limit=limit)
+        drafts = HuggingFaceCollector().model_cards(targets)
+        with session_scope() as session:
+            new = persist_drafts(session, drafts)
+        typer.echo(
+            f"[enrich-hf] {len(targets)} models → {len(drafts)} cards, {new} new events "
+            f"(run `seismo resolve` then `seismo comprehend` to card them)"
+        )
+
+
+@app.command(name="enrich-hn")
+def enrich_hn(
+    min_points: int = typer.Option(100, help="Only enrich stories at/above this HN score."),
+    limit: int = typer.Option(None, help="Cap the number of discussions to fetch (rate budget)."),
+) -> None:
+    """Enrichment (Wave-3) — fetch the *discussion* under each entity's high-signal HN story (the
+    comments where people explain what a thing is) as an ``hn_discussion`` event, so cards reflect
+    what the community actually said. Run ``resolve`` then ``comprehend`` after."""
+    from seismo.collectors.launches import HnDiscussionEnricher, select_hn_targets
+    from seismo.collectors.runner import persist_drafts
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-hn"):
+        with session_scope() as session:
+            targets = select_hn_targets(session, min_points=min_points, limit=limit)
+        drafts = HnDiscussionEnricher().fetch(targets)
+        with session_scope() as session:
+            new = persist_drafts(session, drafts)
+        typer.echo(
+            f"[enrich-hn] {len(targets)} stories → {len(drafts)} discussions, {new} new events "
+            f"(run `seismo resolve` then `seismo comprehend` to card them)"
         )
 
 
@@ -261,6 +342,10 @@ def comprehend(
     as_of: str = typer.Option(None, help="ISO date; default now."),
     entity: int = typer.Option(None, help="Force a card for one entity id (skips the trigger)."),
     limit: int = typer.Option(None, help="Cap candidates this run (cost control)."),
+    backlog: bool = typer.Option(
+        False, "--backlog", help="Card uncarded entities that already have collected content "
+        "(abstracts / READMEs / discussions), regardless of momentum — clears the arXiv/HF backlog."
+    ),
 ) -> None:
     """Layer 3 — comprehension checkpoint 1 (doc 05). Provider pluggable; dev/CI = mock ($0)."""
     from seismo.checkpoints.comprehend import run_comprehend
@@ -269,7 +354,7 @@ def comprehend(
     when = _parse_as_of(as_of)
     with record_pipeline_run("comprehend", when):
         with session_scope() as session:
-            stats = run_comprehend(session, when, entity_id=entity, limit=limit)
+            stats = run_comprehend(session, when, entity_id=entity, limit=limit, backlog=backlog)
         typer.echo(
             f"[comprehend] provider={settings.llm_provider} as_of={when.date()} — {stats.as_note()}"
         )

@@ -408,6 +408,51 @@ def test_thin_cohort_riser_is_provisional_and_capped(clean_db: Session) -> None:
     assert state == "simmering", "a thin cohort may not manufacture a breakout (doc 14 §5)"
 
 
+def test_score_canonicalizes_stale_loser_metric_rows(clean_db: Session) -> None:
+    """A merge after snapshot can leave old metric rows under the loser id.
+
+    Velocity reads must fold those rows onto the canonical survivor just like ``entity_facts`` does,
+    or scoring crashes with a missing cohort for the loser.
+    """
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    loser = _entity(session, "loser", created=t0)
+    survivor = _entity(session, "survivor", created=t0)
+    _daily_repo(session, loser, start=t0, days=2, stars_fn=lambda d: 10 + d)
+    _event(
+        session,
+        survivor,
+        source="github",
+        event_type="repo_discovered",
+        occurred=t0,
+        payload={"full_name": "org/survivor"},
+    )
+    session.flush()
+    run_snapshot(session, t0)
+    session.execute(
+        text(
+            """
+            INSERT INTO entity_merges
+                (loser_id, survivor_id, justified_at, rule, confidence, decided_by)
+            VALUES (:loser, :survivor, :justified_at, 'test', 1.0, 'auto')
+            """
+        ),
+        {"loser": loser, "survivor": survivor, "justified_at": t0 + timedelta(days=1)},
+    )
+    session.execute(
+        text("UPDATE entities SET merged_into = :survivor WHERE id = :loser"),
+        {"loser": loser, "survivor": survivor},
+    )
+    session.flush()
+
+    as_of = t0 + timedelta(days=1)
+    run_score(session, as_of)
+
+    states = _states_at(session, as_of.date())
+    assert survivor in states
+    assert loser not in states
+
+
 # --- maturity ladder --------------------------------------------------------
 
 

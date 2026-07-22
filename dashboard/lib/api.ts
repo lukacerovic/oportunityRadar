@@ -26,11 +26,13 @@ async function get<T>(path: string, revalidate = 300): Promise<T> {
 export function getRadar(params: {
   state?: string;
   theme?: string;
+  source?: string;
   limit?: number;
 } = {}): Promise<RadarResponse> {
   const q = new URLSearchParams();
   if (params.state) q.set("state", params.state);
   if (params.theme) q.set("theme", params.theme);
+  if (params.source) q.set("source", params.source);
   q.set("limit", String(params.limit ?? 200));
   return get<RadarResponse>(`/radar?${q.toString()}`);
 }
@@ -58,6 +60,15 @@ export function getBriefs(status?: string): Promise<BriefListItem[]> {
 
 export function getBrief(entityId: number): Promise<Brief> {
   return get<Brief>(`/briefs/${entityId}`, 60);
+}
+
+// Most entities have no brief (only gate-passed ones do) — treat a 404 as "none", not an error.
+export async function getBriefSafe(entityId: number): Promise<Brief | null> {
+  try {
+    return await getBrief(entityId);
+  } catch {
+    return null;
+  }
 }
 
 export function getChanges(day: string): Promise<ChangesResponse> {

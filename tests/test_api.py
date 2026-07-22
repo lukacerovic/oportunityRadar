@@ -54,6 +54,26 @@ def _entity(
     return eid
 
 
+def _attach_source(session: Session, eid: int, source: str, occurred: datetime) -> None:
+    """Attach a raw event from ``source`` to an entity, the way /radar reads collection source."""
+    rid = int(
+        session.execute(
+            text(
+                "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at, payload)"
+                " VALUES (:s, :uid, 'test', :o, CAST('{}' AS JSONB)) RETURNING id"
+            ),
+            {"s": source, "uid": f"{source}-{next(_UID)}", "o": occurred},
+        ).scalar_one()
+    )
+    session.execute(
+        text(
+            "INSERT INTO entity_links (entity_id, raw_event_id, rule, confidence, evidence_occurred_at)"
+            " VALUES (:e, :r, 'attach', 1.0, :o)"
+        ),
+        {"e": eid, "r": rid, "o": occurred},
+    )
+
+
 def _momentum(session: Session, eid: int, day: datetime, state: str, p: float) -> None:
     session.execute(
         text(
@@ -107,6 +127,74 @@ def test_radar_ranks_breakout_first_with_one_liner(clean_db: Session) -> None:
 
     filtered = _client(session).get("/radar", params={"state": "breakout"}).json()
     assert {e["name"] for e in filtered["entities"]} == {"rocket"}
+
+
+def test_radar_source_filter_and_counts_are_by_origin(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    # A GitHub repo that also trended on HN: its origin is still GitHub, not Hacker News.
+    repo = _entity(session, "acme/tool", created=t0, attrs={"anchors": {"github": "acme/tool"}})
+    paper = _entity(session, "A Paper", created=t0, attrs={"anchors": {"arxiv": "2405.00001"}})
+    launch = _entity(session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}})
+    _attach_source(session, repo, "github", t0)
+    _attach_source(session, repo, "hn", t0)  # HN attention on a GitHub entity
+    session.flush()
+
+    as_of = (t0 + timedelta(days=1)).isoformat()
+    r = _client(session).get("/radar", params={"as_of": as_of}).json()
+    by_name = {e["name"]: e for e in r["entities"]}
+    # The `sources` array still records every collector that touched an entity (raw provenance).
+    assert set(by_name["acme/tool"]["sources"]) == {"github", "hn"}
+    # ...but the pill COUNTS are by origin: the repo counts as GitHub, never Hacker News.
+    assert r["source_counts"] == {"github": 1, "arxiv": 1, "hf": 0, "hn": 1}
+
+    # Selecting Hacker News returns ONLY the HN-native launch — no GitHub repo bleeds in.
+    hn = _client(session).get("/radar", params={"as_of": as_of, "source": "hn"}).json()
+    assert {e["name"] for e in hn["entities"]} == {"Kimi K3"}
+    # Selecting GitHub returns the repo (which trended on HN) but not the launch.
+    gh = _client(session).get("/radar", params={"as_of": as_of, "source": "github"}).json()
+    assert {e["name"] for e in gh["entities"]} == {"acme/tool"}
+
+
+def test_dossier_exposes_readable_sources(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    eid = _entity(
+        session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}, "text": "Kimi K3 is a model."}
+    )
+
+    def _raw_event(source: str, etype: str, payload: dict) -> int:
+        rid = int(
+            session.execute(
+                text(
+                    "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at, payload)"
+                    " VALUES (:s, :uid, :et, :o, CAST(:p AS JSONB)) RETURNING id"
+                ),
+                {"s": source, "uid": f"{source}-{next(_UID)}", "et": etype, "o": t0, "p": _json(payload)},
+            ).scalar_one()
+        )
+        session.execute(
+            text(
+                "INSERT INTO entity_links (entity_id, raw_event_id, rule, confidence)"
+                " VALUES (:e, :r, 'attach', 1.0)"
+            ),
+            {"e": eid, "r": rid},
+        )
+        return rid
+
+    _raw_event("hn", "story", {"title": "Kimi K3 is now live", "url": "https://kimi.com", "points": 641})
+    _raw_event("web", "launch_page", {"slug": "kimi-k3", "url": "https://kimi.com", "text": "Kimi K3 is a 1T MoE model."})
+    _raw_event("hf", "model_snapshot", {"id": "moonshotai/kimi-k3", "downloads": 5})  # snapshots excluded
+    session.flush()
+
+    d = _client(session).get("/entities/{}".format(eid)).json()
+    assert d["description"] == "Kimi K3 is a model."
+    kinds = {e["kind"] for e in d["evidence"]}
+    assert kinds == {"Hacker News", "Launch page"}  # the model_snapshot is filtered out
+    hn = next(e for e in d["evidence"] if e["kind"] == "Hacker News")
+    assert hn["score"] == 641 and hn["url"] == "https://kimi.com"
+    launch = next(e for e in d["evidence"] if e["kind"] == "Launch page")
+    assert launch["text"] == "Kimi K3 is a 1T MoE model."
 
 
 def test_dossier_returns_card_and_history(clean_db: Session) -> None:

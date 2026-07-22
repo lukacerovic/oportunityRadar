@@ -67,9 +67,72 @@ def test_primary_anchor_per_source() -> None:
         "name": "vLLM",
     }
     assert primary_anchor("seed", "seed_anchor", seed_payload).key == "github:vllm-project/vllm"
+    # A launch_page enrichment event routes back to its web entity via the carried slug.
+    lp = primary_anchor("web", "launch_page", {"slug": "kimi-k3", "name": "Kimi K3", "text": "..."})
+    assert lp == Anchor("web", "kimi-k3", "product", "Kimi K3")
+    assert primary_anchor("web", "launch_page", {"text": "no slug"}) is None
+    # A generic enrich event (e.g. hn_discussion) attaches via the explicit anchor it carries.
+    en = primary_anchor(
+        "enrich", "hn_discussion", {"anchor": {"registry": "web", "native_id": "kimi-k3"}, "text": "…"}
+    )
+    assert en.key == "web:kimi-k3"
+
+
+def test_hn_high_signal_launch_mints_web_anchor() -> None:
+    # A registry-less but high-signal launch becomes a name-anchored ``web`` product entity.
+    a = primary_anchor("hn", "story", {"url": "https://kimi.com", "title": "Kimi K3 is now live", "points": 641})
+    assert a == Anchor("web", "kimi-k3", "product", "Kimi K3")
+
+    # Another launch/release story about the same product collapses onto the same anchor key.
+    b = primary_anchor(
+        "hn",
+        "story",
+        {"url": "https://x.com/z/1", "title": "Kimi K3 released with a 1T-param MoE", "points": 240},
+    )
+    assert b.key == "web:kimi-k3"
+
+
+def test_hn_web_anchor_only_for_high_signal_named_launches() -> None:
+    title = "Kimi K3 is now live"
+    # Below the score floor → dropped as unowned context (not every link deserves an entity).
+    assert primary_anchor("hn", "story", {"url": "https://kimi.com", "title": title, "points": 42}) is None
+    # A tracked-registry link still wins over the web fallback.
+    assert (
+        primary_anchor("hn", "story", {"url": "https://github.com/x/y", "title": title, "points": 999}).key
+        == "github:x/y"
+    )
+    # Popular but signal-less opinion / news / question posts are NOT promoted.
+    for noise in ("The Singularity will occur", "Why we moved off Kubernetes", "Japan develops a method"):
+        assert (
+            primary_anchor("hn", "story", {"url": "https://blog.example.com", "title": noise, "points": 800}) is None
+        ), noise
+    assert (
+        primary_anchor("hn", "story", {"url": "https://ask.example.com", "title": "Ask HN: best local LLM?", "points": 300})
+        is None
+    )
 
 
 # --- references (R1–R3 evidence) --------------------------------------------
+
+
+def test_launch_page_html_to_text_strips_chrome_and_scripts() -> None:
+    from seismo.collectors.launches import html_to_text
+
+    html = """
+    <html><head><title>t</title><style>.x{color:red}</style></head>
+    <body><nav>Home About</nav>
+      <h1>Kimi K3</h1>
+      <p>A 1T-parameter mixture-of-experts model that tops the code arena.</p>
+      <script>track('noise')</script>
+      <footer>© 2026</footer>
+    </body></html>
+    """
+    out = html_to_text(html)
+    assert "Kimi K3" in out
+    assert "1T-parameter mixture-of-experts" in out
+    # script/style/nav/footer content is dropped.
+    assert "noise" not in out and "color:red" not in out and "Home About" not in out
+    assert "© 2026" not in out
 
 
 def test_arxiv_comment_yields_r2_github_reference() -> None:

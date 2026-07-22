@@ -54,13 +54,28 @@ run() {  # run "<label>" <command...>
 
 echo "########## Seismograph daily — $STAMP ##########" | tee -a "$LOG"
 
-run "collect"  uv run seismo collect --source fast --window 1d
+run "collect"  uv run seismo collect --source all --window 1d
 run "track"    uv run seismo track  --source github --limit "$TRACK_LIMIT"
+run "track-hf" uv run seismo track  --source hf
 run "resolve"  uv run seismo resolve
+# Enrichment (Wave-3): fetch deep readable content for EVERY source so cards have real substance,
+# not just titles. Each targets only still-un-enriched items (NOT EXISTS) with a per-day cap, so
+# daily runs steadily complete coverage across the whole universe. A second resolve folds the
+# fetched text onto the entities. arXiv abstracts arrive free at collection, so no step is needed.
+if [ "${SKIP_ENRICH:-0}" != "1" ]; then
+  run "enrich-launches" uv run seismo enrich-launches
+  run "enrich-hn"       uv run seismo enrich-hn
+  run "enrich-readmes"  uv run seismo enrich-readmes --missing --limit "${README_LIMIT:-300}"
+  run "enrich-hf"       uv run seismo enrich-hf --limit "${HF_CARD_LIMIT:-300}"
+  run "resolve-enrich"  uv run seismo resolve
+fi
 run "snapshot" uv run seismo snapshot
 run "score"    uv run seismo score
 if [ "${SKIP_COMPREHEND:-0}" != "1" ]; then
   run "comprehend" uv run seismo comprehend
+  # Backlog: card the richest still-uncarded items (arXiv abstracts, HF/launch content) a slice at
+  # a time so the whole universe gradually gets readable cards, not just the momentum-triggered few.
+  run "comprehend-backlog" uv run seismo comprehend --backlog --limit "${BACKLOG_LIMIT:-100}"
 fi
 # Stage 6 (doc 07): deterministic significance gate — no LLM. Picks ≤5 briefs for the current week.
 run "gate"     uv run seismo gate --week "$WEEK"

@@ -49,7 +49,65 @@ _ENTITY_TYPE = {
     "npm": "project",
     "arxiv": "paper",
     "hf": "model",
+    "web": "product",  # name-anchored launch with no tracked registry (doc 04 §2, Wave-3)
 }
+
+# A registry-less HN launch at or above this score is promoted to a first-class ``web`` entity
+# instead of being dropped as unowned context — otherwise a self-hosted model like Kimi (whose
+# launch links only to kimi.com) stays invisible despite a 641-point front-page story.
+_HN_LAUNCH_FLOOR = 100
+
+# Drop the "Show HN:" / "Launch HN:" framing before reading the product name; skip Ask/Tell HN,
+# which are discussions, not launches.
+_HN_SHOW_PREFIX = re.compile(r"^\s*(?:show|launch)\s+hn\s*:\s*", re.IGNORECASE)
+_HN_ASK_PREFIX = re.compile(r"^\s*(?:ask|tell)\s+hn\b", re.IGNORECASE)
+# A launch/release signal is what separates a product announcement ("Kimi K3 is now live") from a
+# random popular opinion/news post ("The Singularity will occur"). Promotion requires one — or a
+# Show/Launch HN framing — so we don't mint an entity for every short-titled front-page story.
+_HN_LAUNCH_SIGNAL = re.compile(
+    r"\b(?:launch\w*|releas\w*|announc\w*|introduc\w*|unveil\w*|debut\w*|"
+    r"is\s+(?:now\s+)?(?:live|out|here|available)|now\s+available|"
+    r"go(?:es)?\s+(?:live|ga)|general\s+availability|ships?|shipped|open[-\s]?sourc\w*)\b",
+    re.IGNORECASE,
+)
+# The product name is the head phrase before the predicate begins — a verb, a preposition, or a
+# delimiter.
+_HN_NAME_CUT = re.compile(
+    r"\s+(?:is|are|was|were|now|by|for|with|to|from|in|on|"
+    r"launch\w*|releas\w*|announc\w*|introduc\w*|unveil\w*|debut\w*|"
+    r"available|live|out|ships?|shipped|hits?|reaches?|passes?|tops?|beats?|"
+    r"surpass\w*|goes?|gets?|becomes?|adds?|supports?)\b",
+    re.IGNORECASE,
+)
+
+
+def _launch_name(title: str) -> str | None:
+    """Best-effort product/launch name from an HN story title, or ``None`` if it doesn't read like
+    a named launch (so we don't mint junk entities from opinion/question/news posts)."""
+    if not title or _HN_ASK_PREFIX.search(title):
+        return None
+    has_show = bool(_HN_SHOW_PREFIX.search(title))
+    t = _HN_SHOW_PREFIX.sub("", title).strip()
+    # A launch needs an explicit Show/Launch HN framing or a release-signal verb in the title.
+    if not has_show and not _HN_LAUNCH_SIGNAL.search(t):
+        return None
+    # Cut at the first delimiter (":", "-", "–", "—", ",", "?", "(") or predicate word.
+    for delim in (":", " - ", " – ", " — ", ",", "?", "("):
+        idx = t.find(delim)
+        if idx > 0:
+            t = t[:idx]
+    m = _HN_NAME_CUT.search(t)
+    head = (t[: m.start()] if m else t).strip(" -–—:,")
+    words = head.split()
+    # Require a short, name-like head: 1–4 tokens. Longer heads are sentences, not product names.
+    if not words or len(words) > 4:
+        return None
+    slug = re.sub(r"[^a-z0-9]+", "-", head.lower()).strip("-")
+    return head if slug else None
+
+
+def _slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 # arXiv ids: 2405.04434 (new scheme) or math.GT/0309136 (old). Version suffix stripped.
 _ARXIV_ID = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b")
@@ -123,9 +181,34 @@ def primary_anchor(source: str, event_type: str, payload: dict[str, Any]) -> Anc
         if name:
             return Anchor(source, str(name).lower(), "project", str(name))
         return None
+    if source == "web":
+        # A launch_page enrichment event carries the web slug of the entity it belongs to.
+        slug = payload.get("slug")
+        if slug:
+            return Anchor("web", str(slug), "product", payload.get("name") or str(slug))
+        return None
+    if source == "enrich":
+        # Generic enrichment (e.g. hn_discussion): the event carries the explicit anchor of the
+        # entity it belongs to, so deep content attaches precisely regardless of registry.
+        a = payload.get("anchor") or {}
+        reg, nid = a.get("registry"), a.get("native_id")
+        if reg and nid:
+            etype = _ENTITY_TYPE.get(reg, "product")
+            return Anchor(reg, str(nid), etype, payload.get("name") or str(nid))
+        return None
     if source == "hn":
         # An HN story attaches to the entity behind its linked URL, if any (doc 04 §2).
-        return anchor_from_url(payload.get("url") or "")
+        url_anchor = anchor_from_url(payload.get("url") or "")
+        if url_anchor is not None:
+            return url_anchor
+        # No tracked registry — but a high-signal launch still deserves an entity (Wave-3). Mint a
+        # name-based ``web`` anchor so its stories collapse into one entity and a later registry
+        # artifact of the same name (e.g. an HF model) can be queued to merge in.
+        if (payload.get("points") or 0) >= _HN_LAUNCH_FLOOR:
+            name = _launch_name(payload.get("title") or "")
+            if name:
+                return Anchor("web", _slugify(name), "product", name)
+        return None
     if source == "seed":
         a = payload.get("anchor") or {}
         reg, nid = a.get("registry"), a.get("native_id")

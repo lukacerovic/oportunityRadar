@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from seismo.config import settings
+from seismo.db import canonical_entity_id
 from seismo.trajectory.cohorts import EntityFacts, entity_facts
 from seismo.trajectory.metrics import BREADTH_METRIC, COMPOSITE_METRICS
 
@@ -86,8 +87,13 @@ def _load_series(session: Session, as_of: datetime) -> dict[str, dict[int, dict[
         {"as_of_day": as_of.date()},
     ).all()
     series: dict[str, dict[int, dict[date, Decimal]]] = defaultdict(lambda: defaultdict(dict))
+    canonical: dict[int, int] = {}
     for metric, entity_id, day, value in rows:
-        series[metric][entity_id][day] = value
+        if entity_id not in canonical:
+            canonical[entity_id] = canonical_entity_id(session, entity_id, as_of)
+        cid = canonical[entity_id]
+        existing = series[metric][cid].get(day)
+        series[metric][cid][day] = value if existing is None else max(existing, value)
     return series
 
 

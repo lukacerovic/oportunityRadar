@@ -19,12 +19,22 @@ export interface RadarEntity {
   one_liner: string | null;
   provisional: boolean;
   sparkline: number[];
+  sources: string[]; // collectors that touched it: github/hn/arxiv/hf/seed/…
 }
 
 export interface RadarResponse {
   as_of: string;
   count: number;
   entities: RadarEntity[];
+  source_counts: Record<string, number>;
+}
+
+export interface SearchHit {
+  id: number;
+  name: string;
+  entity_type: string;
+  category: string | null;
+  state: MomentumState | null; // null until momentum is computed (e.g. a fresh launch)
 }
 
 export interface SparkPoint {
@@ -65,6 +75,16 @@ export interface Card {
   category_disputed: boolean;
 }
 
+export interface EvidenceItem {
+  source: string;
+  kind: string;
+  title: string | null;
+  url: string | null;
+  text: string | null;
+  score: number | null;
+  occurred_at: string;
+}
+
 export interface EntityDossier {
   id: number;
   name: string;
@@ -78,9 +98,12 @@ export interface EntityDossier {
   velocity_pctl: number | null;
   provisional: boolean;
   cohort_n: number | null;
+  description: string | null;
+  themes: string[];
   maturity: MaturityRung[];
   metrics: MetricSeries[];
   momentum_history: MomentumPoint[];
+  evidence: EvidenceItem[];
   card: Card | null;
   card_versions: number[];
 }

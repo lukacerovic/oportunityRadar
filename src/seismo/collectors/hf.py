@@ -23,6 +23,8 @@ from seismo.config import settings
 
 MODELS_URL = "https://huggingface.co/api/models"
 MODEL_URL = "https://huggingface.co/api/models/{model_id}"
+MODEL_CARD_URL = "https://huggingface.co/{model_id}/raw/main/README.md"
+MODEL_CARD_CAP = 6000  # keep a generous slice of the model card text
 
 # Broad-and-shallow relevance for live discovery (doc 03 §2.4). The org-scoped hindcast path
 # (fetch_by_author) is exempt — a case already pins the org it cares about.
@@ -125,6 +127,38 @@ class HuggingFaceCollector:
                     drafts.append(self._discovery_draft(model, occurred))
         return drafts
 
+    def model_cards(self, targets: list[TrackTarget], window: Window | None = None) -> list[RawEventDraft]:
+        """Fetch each known model's README (its model card) as a ``model_readme`` enrichment event
+        — the HF equivalent of repo READMEs (§16). Discovery stores only usage metadata, so without
+        this HF models have no readable content to comprehend. Errors isolated per target: a gated
+        / private / card-less model (401/403/404) is skipped, not fatal to the batch."""
+        drafts: list[RawEventDraft] = []
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        for target in targets:
+            self._limiter.wait()
+            try:
+                resp = self._client.get(
+                    MODEL_CARD_URL.format(model_id=target.native_id), headers=headers
+                )
+            except httpx.TransportError:
+                continue
+            if resp.status_code >= 400:
+                continue
+            body = _strip_frontmatter(resp.text).strip()
+            if body:
+                drafts.append(self._card_draft(target.native_id, body))
+        return drafts
+
+    @staticmethod
+    def _card_draft(model_id: str, body: str) -> RawEventDraft:
+        return RawEventDraft(
+            source="hf",
+            source_event_uid=f"model_readme:{model_id}",
+            event_type="model_readme",
+            occurred_at=datetime.now(UTC),
+            payload={"id": model_id, "text": body[:MODEL_CARD_CAP]},
+        )
+
     def track(self, targets: list[TrackTarget], window: Window) -> list[RawEventDraft]:
         """Re-observe each known model's ``downloads`` as a ``model_snapshot`` (usage level).
 
@@ -185,6 +219,15 @@ class HuggingFaceCollector:
                 "likes": model.get("likes"),
             },
         )
+
+
+def _strip_frontmatter(md: str) -> str:
+    """Drop a model card's leading YAML frontmatter (--- … ---) so only prose text is kept."""
+    if md.startswith("---"):
+        end = md.find("\n---", 3)
+        if end != -1:
+            return md[end + 4 :]
+    return md
 
 
 def _created_at(model: dict[str, Any]) -> datetime | None:

@@ -31,12 +31,14 @@ class RadarEntity(BaseModel):
     one_liner: str | None  # latest card what_it_is
     provisional: bool  # cold-start thin cohort (doc 14 §5)
     sparkline: list[float]  # last 30d of the headline metric, oldest→newest
+    sources: list[str]  # collectors that touched it: github/hn/arxiv/hf/seed/…
 
 
 class RadarResponse(BaseModel):
     as_of: datetime
     count: int
     entities: list[RadarEntity]
+    source_counts: dict[str, int] = {}  # entities per collection source, whole visible universe
 
 
 class MaturityRung(BaseModel):
@@ -74,6 +76,19 @@ class Card(BaseModel):
     category_disputed: bool = False
 
 
+class EvidenceItem(BaseModel):
+    """One human-readable piece of evidence attached to an entity — a source you can open and read
+    (the HN story, the project repo, the paper, the fetched launch/README text)."""
+
+    source: str  # raw collector source: hn | github | arxiv | hf | web | seed
+    kind: str  # display label, e.g. "Hacker News", "arXiv paper", "Launch page", "README"
+    title: str | None
+    url: str | None  # a link the reader can open
+    text: str | None  # readable content: abstract, launch-page / README body (truncated)
+    score: int | None  # attention/usage number for this item (HN points, HF downloads)
+    occurred_at: datetime
+
+
 class EntityDossier(BaseModel):
     """The full `/entity/[id]` view (doc 10 §2)."""
 
@@ -89,9 +104,12 @@ class EntityDossier(BaseModel):
     velocity_pctl: float | None
     provisional: bool
     cohort_n: int | None
+    description: str | None  # aggregated readable text we've collected about it
+    themes: list[str]  # research/market themes this entity belongs to
     maturity: list[MaturityRung]
     metrics: list[MetricSeries]
     momentum_history: list[MomentumPoint]
+    evidence: list[EvidenceItem]  # sources you can open and read
     card: Card | None
     card_versions: list[int]
 

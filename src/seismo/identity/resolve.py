@@ -209,9 +209,12 @@ def _absorb_payload(ent: _Ent, event: RawEvent) -> None:
         " ".join(str(t) for t in (p.get("topics") or [])),
         " ".join(str(t) for t in (p.get("tags") or [])),
     ]
-    # A repo_readme enrichment event (§16) carries the full README body under `text`; fold it in
-    # so build_evidence_pack's Description block (attrs['text'], truncated to 4k) has real content.
-    if event.event_type == "repo_readme" and p.get("text"):
+    # An enrichment event carries deep text under `text` — a repo README (§16) or a fetched launch
+    # page (Wave-3). Fold it in so build_evidence_pack's Description block (attrs['text'], truncated
+    # to 4k) has real content instead of a one-line description / headline.
+    if event.event_type in ("repo_readme", "launch_page", "hn_discussion", "model_readme") and p.get(
+        "text"
+    ):
         chunks.append(str(p["text"]))
     if event.source == "seed" and p.get("category"):
         ent.attrs["seed_category"] = p["category"]
@@ -551,12 +554,13 @@ def _survivor_key(e: _Ent) -> tuple[bool, datetime, int]:
     return (e.entity_type == "paper", e.created_at, e.id)
 
 
-_ARTIFACT_TYPES = {"project", "model"}
+_ARTIFACT_TYPES = {"project", "model", "product"}
 
 
 def _type_compatible(a: _Ent, b: _Ent) -> bool:
     """Name-based rules only pair plausibly-same types: identical types, two code/model artifacts
-    (a model shipped as a repo), or a paper with such an artifact (papers merge into
+    (a model shipped as a repo, or a ``web`` launch that later appears as an HF model / repo of the
+    same name — queued for a human), or a paper with such an artifact (papers merge into
     projects/models). An ``org`` only pairs with another ``org`` (doc 04 §6.2/§6.4)."""
     if a.entity_type == b.entity_type:
         return True

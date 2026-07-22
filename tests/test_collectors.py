@@ -139,6 +139,31 @@ def test_github_readmes_fetch_and_skip_missing() -> None:
     assert "substantive README body" in d.payload["text"]
 
 
+def test_hf_model_cards_fetch_strip_frontmatter_and_skip_missing() -> None:
+    """A model with a card yields a model_readme event (YAML frontmatter stripped); a 404 skips it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "gated/model" in str(request.url):
+            return httpx.Response(401, text="access denied")
+        return httpx.Response(
+            200,
+            text="---\nlicense: mit\ntags: [llm]\n---\n# Kimi\n\nA 1T-param MoE model for agents.",
+        )
+
+    targets = [
+        TrackTarget(entity_id=1, source="hf", native_id="gated/model"),
+        TrackTarget(entity_id=2, source="hf", native_id="acme/good-model"),
+    ]
+    drafts = HuggingFaceCollector(client=_client(handler), min_interval_s=0).model_cards(targets)
+    assert len(drafts) == 1, "the gated model is skipped, the other still enriches"
+    d = drafts[0]
+    assert d.event_type == "model_readme"
+    assert d.source_event_uid == "model_readme:acme/good-model"  # idempotent per model
+    assert d.payload["id"] == "acme/good-model"
+    assert "1T-param MoE model" in d.payload["text"]
+    assert "license: mit" not in d.payload["text"], "YAML frontmatter is stripped"
+
+
 def test_github_readmes_skip_transient_and_empty() -> None:
     """A mid-batch disconnect and an empty README body both skip cleanly."""
 

@@ -1,11 +1,12 @@
 import Link from "next/link";
 
+// Queue (entity-merge triage) is internal curation, not a monitoring view — kept as a route but
+// off the main nav. Tooltips spell out what each section is for.
 const NAV = [
-  { href: "/", label: "Radar" },
-  { href: "/changes/latest", label: "Changes" },
-  { href: "/gate/current", label: "Gate" },
-  { href: "/brief", label: "Briefs" },
-  { href: "/queue", label: "Queue" },
+  { href: "/", label: "Radar", hint: "Everything we track, ranked by momentum" },
+  { href: "/changes/latest", label: "Activity", hint: "What moved recently — new items, state changes" },
+  { href: "/gate/current", label: "Gate", hint: "The weekly shortlist of items significant enough to analyze" },
+  { href: "/brief", label: "Briefs", hint: "Market-impact analyses — which public companies a shift could move" },
 ];
 
 export function TopNav({ active = "/" }: { active?: string }) {
@@ -29,6 +30,7 @@ export function TopNav({ active = "/" }: { active?: string }) {
             <Link
               key={n.href}
               href={n.href}
+              title={n.hint}
               className={`rounded-md px-3 py-1.5 transition ${
                 on
                   ? "bg-card text-text shadow-[0_0_0_1px_theme(colors.border)]"

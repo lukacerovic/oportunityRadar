@@ -48,6 +48,45 @@ def select_targets(
     ]
 
 
+def select_unenriched_targets(
+    session: Session,
+    source: str,
+    event_type: str,
+    *,
+    limit: int | None = None,
+    tier: str = "active",
+) -> list[TrackTarget]:
+    """Active, unmerged entities carrying ``source``'s anchor that do NOT yet have an enrichment
+    event of ``event_type`` (e.g. ``repo_readme`` / ``model_readme``). Newest first, bounded by
+    ``limit`` — so a daily run makes steady progress across the whole universe instead of
+    re-fetching the same already-enriched head. This is what makes enrichment self-completing."""
+    registry = _SOURCE_REGISTRY.get(source)
+    if registry is None:
+        return []
+    sql = text(
+        """
+        SELECT e.id, e.attrs->'anchors'->>:registry AS native_id
+        FROM entities e
+        WHERE e.attrs->'anchors' ? :registry
+          AND e.tracking_tier = :tier
+          AND e.merged_into IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
+            WHERE l.entity_id = e.id AND r.event_type = :etype)
+        ORDER BY e.created_at DESC, e.id
+        """
+        + ("LIMIT :limit" if limit is not None else "")
+    )
+    params: dict[str, object] = {"registry": registry, "tier": tier, "etype": event_type}
+    if limit is not None:
+        params["limit"] = limit
+    return [
+        TrackTarget(entity_id=row.id, source=source, native_id=row.native_id)
+        for row in session.execute(sql, params)
+        if row.native_id
+    ]
+
+
 def select_carded_targets(
     session: Session, source: str, *, limit: int | None = None
 ) -> list[TrackTarget]:

@@ -68,9 +68,15 @@ def run_comprehend(
     *,
     entity_id: int | None = None,
     limit: int | None = None,
+    backlog: bool = False,
 ) -> ComprehendStats:
     stats = ComprehendStats()
-    candidates = [entity_id] if entity_id is not None else select_candidates(session, as_of, limit)
+    if entity_id is not None:
+        candidates = [entity_id]
+    elif backlog:
+        candidates = select_backlog(session, as_of, limit)
+    else:
+        candidates = select_candidates(session, as_of, limit)
     stats.candidates = len(candidates)
     month_spent = _month_spend(session, as_of)
     budget = Decimal(str(settings.llm_budget_usd))
@@ -190,6 +196,31 @@ def select_candidates(session: Session, as_of: datetime, limit: int | None = Non
         "min_breadth": MIN_BREADTH,
         "warm": list(WARM_STATES),
     }
+    if limit is not None:
+        params["limit"] = limit
+    return [int(r) for r in session.execute(sql, params).scalars()]
+
+
+def select_backlog(session: Session, as_of: datetime, limit: int | None = None) -> list[int]:
+    """Backlog comprehension: uncarded entities that DO have readable content collected (an
+    abstract, README, launch page, HN discussion), regardless of momentum. This clears the
+    single-source arXiv/HF/launch backlog the momentum gate intentionally skips — safe because the
+    content is already stored, so the card is a summary of real material, not a guess. Richest
+    (most text) first so a bounded run gets the best cards."""
+    sql = text(
+        """
+        SELECT e.id
+        FROM entities e
+        WHERE e.merged_into IS NULL AND e.tracking_tier <> 'archived'
+          AND COALESCE(LENGTH(e.attrs->>'text'), 0) >= :min_text
+          AND NOT EXISTS (
+            SELECT 1 FROM comprehension_cards c
+            WHERE c.entity_id = e.id AND c.status = 'ok')
+        ORDER BY LENGTH(e.attrs->>'text') DESC, e.id
+        """
+        + ("LIMIT :limit" if limit is not None else "")
+    )
+    params: dict[str, Any] = {"min_text": 200}
     if limit is not None:
         params["limit"] = limit
     return [int(r) for r in session.execute(sql, params).scalars()]

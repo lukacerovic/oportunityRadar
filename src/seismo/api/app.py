@@ -77,6 +77,7 @@ def radar(
     as_of: datetime = Depends(get_as_of),
     theme: str | None = Query(None),
     state: str | None = Query(None),
+    source: str | None = Query(None),
     limit: int = Query(200, le=1000),
 ) -> m.RadarResponse:
     """Momentum-ranked entity grid: breakout → dormant, then velocity (doc 10 §2)."""
@@ -93,12 +94,23 @@ def radar(
                 SELECT DISTINCT ON (entity_id) entity_id, card
                 FROM comprehension_cards WHERE as_of <= :as_of AND status = 'ok'
                 ORDER BY entity_id, version DESC
+            ),
+            src AS (
+                -- Collectors that have touched each entity (github/hn/arxiv/hf/…),
+                -- via the immutable events attached to it. HN only appears here.
+                SELECT l.entity_id, array_agg(DISTINCT r.source) AS sources
+                FROM entity_links l
+                JOIN raw_events r ON r.id = l.raw_event_id
+                WHERE l.rule = 'attach' AND r.occurred_at <= :as_of
+                GROUP BY l.entity_id
             )
             SELECT e.id, e.canonical_name, e.entity_type, e.category,
-                   COALESCE(ms.state, 'dormant') AS state, ms.inputs, lc.card
+                   COALESCE(ms.state, 'dormant') AS state, ms.inputs, lc.card,
+                   COALESCE(src.sources, ARRAY[]::text[]) AS sources
             FROM entities e
             LEFT JOIN ms ON ms.entity_id = e.id
             LEFT JOIN lc ON lc.entity_id = e.id
+            LEFT JOIN src ON src.entity_id = e.id
             """
                 + (
                     "JOIN entity_themes et ON et.entity_id = e.id "
@@ -110,6 +122,15 @@ def radar(
             WHERE e.merged_into IS NULL AND e.tracking_tier <> 'archived'
             """
                 + ("AND COALESCE(ms.state, 'dormant') = :state " if state else "")
+                + (
+                    # Filter by ORIGIN, not "any event that touched it": an entity belongs to the
+                    # registry it is anchored on. HN stories attach to the github/arxiv/hf thing
+                    # they link to, so those stay under their own source; only HN-native launches
+                    # (anchored `web`) show under Hacker News. Mutually exclusive buckets.
+                    "AND e.attrs->'anchors' ? :source_reg "
+                    if source
+                    else ""
+                )
                 + """
             ORDER BY CASE COALESCE(ms.state, 'dormant')
                        WHEN 'breakout' THEN 0 WHEN 'accelerating' THEN 1
@@ -127,11 +148,31 @@ def radar(
                 "limit": limit,
                 **({"theme": theme} if theme else {}),
                 **({"state": state} if state else {}),
+                # Dashboard pill 'hn' → the `web` registry (HN-native launches like Kimi).
+                **({"source_reg": "web" if source == "hn" else source} if source else {}),
             },
         )
         .mappings()
         .all()
     )
+
+    # Global per-origin entity counts (whole visible universe, independent of the current filters)
+    # so the dashboard's source pills show true totals. Counted by anchor registry to match the
+    # by-origin filter above; the 'hn' bucket is the HN-native `web` launches.
+    counts_row = session.execute(
+        text(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'github') AS github,
+              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'arxiv')  AS arxiv,
+              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'hf')     AS hf,
+              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'web')    AS hn
+            FROM entities e
+            WHERE e.merged_into IS NULL AND e.tracking_tier <> 'archived'
+            """
+        )
+    ).mappings().one()
+    source_counts = {k: int(counts_row[k]) for k in ("github", "arxiv", "hf", "hn")}
 
     spark = _sparklines(session, [r["id"] for r in rows], as_of)
     entities = []
@@ -150,9 +191,12 @@ def radar(
                 one_liner=card.get("what_it_is"),
                 provisional=bool(inputs.get("provisional", False)),
                 sparkline=spark.get(r["id"], []),
+                sources=list(r["sources"] or []),
             )
         )
-    return m.RadarResponse(as_of=as_of, count=len(entities), entities=entities)
+    return m.RadarResponse(
+        as_of=as_of, count=len(entities), entities=entities, source_counts=source_counts
+    )
 
 
 def _sparklines(session: Session, ids: list[int], as_of: datetime) -> dict[int, list[float]]:
@@ -248,6 +292,21 @@ def dossier(
 
     metrics = _metric_series(session, canonical, as_of)
     card, versions = _card(session, canonical, as_of)
+    evidence = _evidence(session, canonical, as_of)
+    themes = [
+        r[0]
+        for r in session.execute(
+            text(
+                "SELECT DISTINCT th.name FROM entity_themes et"
+                " JOIN themes th ON th.id = et.theme_id WHERE et.entity_id = :id ORDER BY th.name"
+            ),
+            {"id": canonical},
+        ).all()
+    ]
+
+    description = (attrs.get("text") or "").strip() or None
+    if description:
+        description = description[:2000]
 
     return m.EntityDossier(
         id=canonical,
@@ -262,11 +321,92 @@ def dossier(
         velocity_pctl=inputs.get("P"),
         provisional=bool(inputs.get("provisional", False)),
         cohort_n=inputs.get("cohort_n"),
+        description=description,
+        themes=themes,
         maturity=maturity,
         metrics=metrics,
         momentum_history=history,
+        evidence=evidence,
         card=card,
         card_versions=versions,
+    )
+
+
+def _evidence(session: Session, canonical: int, as_of: datetime) -> list[m.EvidenceItem]:
+    """The readable sources behind an entity: the discovery/enrichment events (not metric
+    snapshots), projected into openable links + text so the dossier can show 'where this came
+    from' and 'what it says'."""
+    rows = session.execute(
+        text(
+            """
+            SELECT r.source, r.event_type, r.occurred_at, r.payload
+            FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
+            WHERE l.entity_id = :id AND l.rule = 'attach' AND r.occurred_at <= :as_of
+              AND r.event_type NOT LIKE '%snapshot%'
+            ORDER BY r.occurred_at DESC
+            LIMIT 40
+            """
+        ),
+        {"id": canonical, "as_of": as_of},
+    ).mappings()
+
+    items: list[m.EvidenceItem] = []
+    seen: set[tuple[str | None, str | None]] = set()
+    for r in rows:
+        item = _evidence_item(r["source"], r["event_type"], r["occurred_at"], r["payload"] or {})
+        key = (item.url, item.title)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+    return items[:20]
+
+
+def _evidence_item(source: str, event_type: str, occurred_at: datetime, p: dict) -> m.EvidenceItem:
+    def _int(x: Any) -> int | None:
+        try:
+            return int(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    kind, title, url, txt, score = source, None, None, None, None
+    if event_type == "hn_discussion":
+        kind, title, url, txt = "HN discussion", "Community discussion", p.get("url"), p.get("text")
+    elif event_type == "launch_page":
+        kind, url, title, txt = "Launch page", p.get("url"), p.get("name"), p.get("text")
+    elif source == "hn":
+        kind, title, url, score = "Hacker News", p.get("title"), p.get("url"), _int(p.get("points"))
+    elif source == "github":
+        fn = p.get("full_name") or p.get("repo")
+        kind = "README" if event_type == "repo_readme" else "GitHub"
+        title = fn
+        url = f"https://github.com/{fn}" if fn else (p.get("homepage") or None)
+        txt = p.get("text") or p.get("description")
+    elif event_type == "model_readme":
+        mid = p.get("id")
+        kind, title = "Model card", mid
+        url = f"https://huggingface.co/{mid}" if mid else None
+        txt = p.get("text")
+    elif source == "arxiv":
+        aid = p.get("arxiv_id")
+        kind, title = "arXiv paper", p.get("title")
+        url = f"https://arxiv.org/abs/{aid}" if aid else None
+        txt = p.get("summary")
+    elif source == "hf":
+        mid = p.get("id") or p.get("modelId")
+        kind, title = "Hugging Face", mid
+        url = f"https://huggingface.co/{mid}" if mid else None
+        score, txt = _int(p.get("downloads")), p.get("description")
+    elif source == "seed":
+        kind, title = "Seed", p.get("name")
+    return m.EvidenceItem(
+        source=source,
+        kind=kind,
+        title=title,
+        url=url,
+        text=(str(txt)[:1500] if txt else None),
+        score=score,
+        occurred_at=occurred_at,
     )
 
 
