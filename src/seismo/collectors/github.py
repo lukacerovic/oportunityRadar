@@ -19,6 +19,8 @@ from seismo.config import settings
 SEARCH_URL = "https://api.github.com/search/repositories"
 REPO_URL = "https://api.github.com/repos/{full_name}"
 README_URL = "https://api.github.com/repos/{full_name}/readme"
+CONTRIBUTORS_URL = "https://api.github.com/repos/{full_name}/contributors"
+CONTRIBUTORS_CAP = 10  # top-N contributors kept per repo (the built_by graph edges, Feature 1)
 ACCEPT = "application/vnd.github+json"
 RAW_ACCEPT = "application/vnd.github.raw"  # README endpoint returns the file body verbatim
 README_CAP = 20000  # bounded README body kept on the raw event (pack truncates again to 4k)
@@ -123,6 +125,48 @@ class GitHubCollector:
             if body:
                 drafts.append(self._readme_draft(target.native_id, body))
         return drafts
+
+    def contributors(self, targets: list[TrackTarget], window: Window) -> list[RawEventDraft]:
+        """Fetch each target's top contributors as a ``repo_contributors`` event (enrichment).
+
+        Records who builds a repo so the derive step can mint ``built_by`` graph edges (person →
+        repo). Record-only — the collector never reasons about identity (invariant 4); resolution
+        of a ``login`` to a person entity happens downstream. Errors are isolated per target exactly
+        like :meth:`readmes`: a gone/private repo (404/451) or a transient disconnect skips that one
+        target instead of aborting the batch. Idempotent — one event per repo (``full_name``)."""
+        drafts: list[RawEventDraft] = []
+        for target in targets:
+            self._limiter.wait()
+            try:
+                resp = self._client.get(
+                    CONTRIBUTORS_URL.format(full_name=target.native_id),
+                    params={"per_page": CONTRIBUTORS_CAP},
+                    headers=self._headers(),
+                )
+            except httpx.TransportError:
+                continue
+            if resp.status_code in (404, 451):
+                continue  # repo gone/private, or no contributors — expected attrition
+            resp.raise_for_status()
+            rows = resp.json()
+            if isinstance(rows, list) and rows:
+                drafts.append(self._contributors_draft(target.native_id, rows))
+        return drafts
+
+    @staticmethod
+    def _contributors_draft(full_name: str, rows: list[dict[str, Any]]) -> RawEventDraft:
+        contributors = [
+            {"login": r.get("login"), "contributions": r.get("contributions")}
+            for r in rows[:CONTRIBUTORS_CAP]
+            if r.get("login")
+        ]
+        return RawEventDraft(
+            source="github",
+            source_event_uid=f"repo_contributors:{full_name}",
+            event_type="repo_contributors",
+            occurred_at=datetime.now(UTC),
+            payload={"full_name": full_name, "contributors": contributors},
+        )
 
     @staticmethod
     def _readme_draft(full_name: str, body: str) -> RawEventDraft:

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from seismo.collectors.base import TrackTarget
 
 # The anchor registry each source deep-polls. Extend as tracking collectors land (pypi, npm).
-_SOURCE_REGISTRY = {"github": "github", "hf": "hf"}
+_SOURCE_REGISTRY = {"github": "github", "hf": "hf", "pypi": "pypi"}
 
 
 def select_targets(

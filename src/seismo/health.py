@@ -34,6 +34,13 @@ CORE_TABLES = {
     "reach_links",
     "collector_runs",
     "pipeline_runs",
+    "changes_daily",
+    "calibration_snapshots",
+    "hindcast_runs",
+    "entity_graph_edges",
+    "discovery_triage_decisions",
+    "entity_semantic_edges",
+    "council_verdicts",
 }
 
 
@@ -86,7 +93,7 @@ def _schema() -> Check:
 
 def _llm_config() -> Check:
     provider = settings.llm_provider
-    if provider not in {"mock", "ollama", "anthropic"}:
+    if provider not in {"mock", "ollama", "anthropic", "claude_cli"}:
         return Check("llm", False, f"unknown provider {provider!r}")
     if provider == "anthropic" and not settings.anthropic_api_key:
         return Check("llm", False, "provider=anthropic but SEISMO_ANTHROPIC_API_KEY is empty")

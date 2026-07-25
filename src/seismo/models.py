@@ -284,6 +284,114 @@ class HindcastRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EntityGraphEdge(Base):
+    """A typed domain relation between two entities (Feature 1, migration 0007).
+
+    Separate from ``entity_links`` on purpose: that table's ``rule`` is resolution provenance
+    (``attach``/``R1``..``R6``); these are domain edges — ``built_by`` (person → repo), ``cited``
+    (repo → paper), ``depends_on`` (package → package). Derived by the pure ``derive-edges`` pass;
+    ``evidence_refs`` holds the raw_event ids that justify the edge. Unique on
+    ``(src, dst, edge_type)`` so the derive pass upserts idempotently."""
+
+    __tablename__ = "entity_graph_edges"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    src_entity_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("entities.id"), nullable=False
+    )
+    dst_entity_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("entities.id"), nullable=False
+    )
+    edge_type: Mapped[str] = mapped_column(Text, nullable=False)
+    weight: Mapped[float] = mapped_column(REAL, nullable=False, server_default="1.0")
+    since: Mapped[date | None] = mapped_column(Date)
+    evidence_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class EntitySemanticEdge(Base):
+    """A model-reasoned relation between two entities (migration 0009).
+
+    Deliberately not ``entity_graph_edges``: that table is the deterministic spine, every row
+    justified by raw_event ids (invariant 4 — collectors never reason). These are judgements —
+    ``semantically_similar_to`` between two projects that solve the same problem with no
+    structural link — so each carries ``model`` and ``confidence_score`` and a consumer opts
+    into inference explicitly. Endpoints are nullable because an edge may anchor on a concept
+    ("Claude Code", "MCP") that is not a tracked entity; the labels always survive."""
+
+    __tablename__ = "entity_semantic_edges"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    src_entity_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("entities.id"))
+    dst_entity_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("entities.id"))
+    src_label: Mapped[str] = mapped_column(Text, nullable=False)
+    dst_label: Mapped[str] = mapped_column(Text, nullable=False)
+    relation: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence_score: Mapped[float] = mapped_column(REAL, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    source_file: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CouncilVerdict(Base):
+    """One independent perspective's judgement on an already-drafted ImpactBrief (migration 0010).
+
+    Three roles (``skeptic``, ``evidence_auditor``, ``mechanism_reviewer``) each review the same
+    brief separately and record a stance. Deliberately three rows, not one synthesized verdict —
+    the aggregate (majority vote) is computed on read so individual dissent is never lost."""
+
+    __tablename__ = "council_verdicts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), nullable=False)
+    impact_brief_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("impact_briefs.id"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    stance: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(Text, nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DiscoveryTriageDecision(Base):
+    """One triage verdict on a freshly-minted discovery entity (Feature 6, migration 0008).
+
+    The audit log of the ``seismo triage`` step: ``decision`` (track | skip), ``decided_by``
+    (``ai`` = the claude_cli LLM via ``complete_triage``, or ``threshold`` = the deterministic
+    stars/downloads fallback when the LLM is unavailable), the ``model`` used (null for threshold),
+    and the ``facts`` the call saw. ``entity_id`` is UNIQUE so an entity is triaged at most once and
+    re-runs are idempotent. The effect (archiving via ``entities.tracking_tier``) reuses the A-4
+    bounded-tracking mechanism; this row is the provenance."""
+
+    __tablename__ = "discovery_triage_decisions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("entities.id"), nullable=False, unique=True
+    )
+    decision: Mapped[str] = mapped_column(Text, nullable=False)  # track | skip
+    sector: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[str] = mapped_column(Text, nullable=False)  # ai | threshold
+    model: Mapped[str | None] = mapped_column(Text)
+    facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class CollectorRun(Base):
     __tablename__ = "collector_runs"
 
@@ -328,6 +436,10 @@ __all__ = [
     "ExposureCompany",
     "ReachLink",
     "HindcastRun",
+    "EntityGraphEdge",
+    "EntitySemanticEdge",
+    "CouncilVerdict",
+    "DiscoveryTriageDecision",
     "CollectorRun",
     "PipelineRun",
 ]

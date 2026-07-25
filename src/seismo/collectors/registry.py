@@ -9,6 +9,8 @@ from seismo.collectors.base import BaseCollector
 from seismo.collectors.github import GitHubCollector
 from seismo.collectors.hf import HuggingFaceCollector
 from seismo.collectors.hn import HackerNewsCollector
+from seismo.collectors.openrouter import OpenRouterCollector
+from seismo.collectors.pypi import PyPICollector
 
 # Factories so a collector (and its HTTP client) is built only when actually run.
 FACTORIES: dict[str, Callable[[], BaseCollector]] = {
@@ -16,14 +18,19 @@ FACTORIES: dict[str, Callable[[], BaseCollector]] = {
     "hn": HackerNewsCollector,
     "arxiv": ArxivCollector,
     "hf": HuggingFaceCollector,
+    "pypi": PyPICollector,
+    "openrouter": OpenRouterCollector,
 }
 
 # Timer groups (doc 03 §3). ``hf`` is the 4th evidence type (usage, A-5); it joins ``all`` but not
 # the ``fast`` daily group — its live discovery is broader/noisier, run it on its own cadence.
-# The pricing watcher (5th type) lands next.
+# ``pypi`` is track/enrich-only (its ``discover`` is empty), so ``fast`` buys nothing — it joins
+# ``all`` alongside ``hf`` on the same rationale. The pricing watcher (5th type) lands next.
+# ``openrouter`` is discover-only market evidence on the same daily cadence as hf/pypi — its
+# rankings points land weekly, so ``fast`` buys nothing.
 GROUPS: dict[str, list[str]] = {
     "fast": ["github", "hn", "arxiv"],
-    "all": ["github", "hn", "arxiv", "hf"],
+    "all": ["github", "hn", "arxiv", "hf", "pypi", "openrouter"],
 }
 
 

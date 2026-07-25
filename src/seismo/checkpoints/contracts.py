@@ -160,3 +160,41 @@ def brief_tool_schema() -> dict[str, Any]:
     schema["properties"]["mechanisms"]["items"] = {"type": "string", "enum": list(MECHANISMS)}
     schema["additionalProperties"] = False
     return schema
+
+
+CouncilRole = Literal["skeptic", "evidence_auditor", "mechanism_reviewer"]
+CouncilStance = Literal["adopt", "watch", "reject"]
+_COUNCIL_MIN_WORDS = 4  # same bar as counter_mechanism — a real argument, not a keyword
+
+
+class CouncilVerdict(BaseModel):
+    """One independent perspective's judgement on an already-drafted ImpactBrief (doc 08 §5 —
+    council review). Three roles review the same brief separately: ``skeptic`` tries to refute the
+    exposure thesis outright, ``evidence_auditor`` checks every claim traces to evidence_refs and
+    flags overreach beyond what the pack supports, ``mechanism_reviewer`` judges whether
+    counter_mechanism and observables are genuinely falsifiable rather than boilerplate. Aggregation
+    across the three is a deterministic majority vote (no LLM synthesis call — see council.py)."""
+
+    role: CouncilRole
+    stance: CouncilStance
+    confidence: Confidence
+    reasoning: str = Field(min_length=1)  # REQUIRED even when agreeing — no rubber-stamping
+
+    @field_validator("reasoning")
+    @classmethod
+    def _reasoning_is_an_argument(cls, v: str) -> str:
+        if len(v.split()) < _COUNCIL_MIN_WORDS:
+            raise ValueError("reasoning must be a real argument, not a bare word or phrase")
+        return v
+
+
+def council_tool_schema() -> dict[str, Any]:
+    """JSON schema for the forced council-verdict tool call. ``role`` is excluded — it's determined
+    by which perspective the orchestrator is calling for, not something the model should choose,
+    so it's injected onto the validated content afterward rather than asked for."""
+    schema = CouncilVerdict.model_json_schema()
+    schema["properties"].pop("role", None)
+    if "role" in schema.get("required", []):
+        schema["required"].remove("role")
+    schema["additionalProperties"] = False
+    return schema

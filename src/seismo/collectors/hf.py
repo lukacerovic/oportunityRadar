@@ -127,7 +127,9 @@ class HuggingFaceCollector:
                     drafts.append(self._discovery_draft(model, occurred))
         return drafts
 
-    def model_cards(self, targets: list[TrackTarget], window: Window | None = None) -> list[RawEventDraft]:
+    def model_cards(
+        self, targets: list[TrackTarget], window: Window | None = None
+    ) -> list[RawEventDraft]:
         """Fetch each known model's README (its model card) as a ``model_readme`` enrichment event
         — the HF equivalent of repo READMEs (§16). Discovery stores only usage metadata, so without
         this HF models have no readable content to comprehend. Errors isolated per target: a gated

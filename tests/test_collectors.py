@@ -12,6 +12,8 @@ from seismo.collectors.base import RawEventDraft, TrackTarget, Window
 from seismo.collectors.github import GitHubCollector
 from seismo.collectors.hf import HuggingFaceCollector
 from seismo.collectors.hn import HackerNewsCollector
+from seismo.collectors.openrouter import OpenRouterCollector
+from seismo.collectors.pypi import PyPICollector
 from seismo.collectors.runner import persist_drafts, run_collector
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
@@ -140,7 +142,7 @@ def test_github_readmes_fetch_and_skip_missing() -> None:
 
 
 def test_hf_model_cards_fetch_strip_frontmatter_and_skip_missing() -> None:
-    """A model with a card yields a model_readme event (YAML frontmatter stripped); a 404 skips it."""
+    """A model with a card yields model_readme (YAML frontmatter stripped); a 404 skips it."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         if "gated/model" in str(request.url):
@@ -183,6 +185,41 @@ def test_github_readmes_skip_transient_and_empty() -> None:
         targets, WINDOW
     )
     assert [d.payload["full_name"] for d in drafts] == ["good/repo"]
+
+
+# --- GitHub contributors enrichment (Feature 1) -----------------------------
+
+
+def test_github_contributors_fetch_and_skip_missing() -> None:
+    """A repo yields a repo_contributors event (top-N logins); a 404 skips that target."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "gone/repo" in str(request.url):
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(
+            200,
+            json=[
+                {"login": "alice", "contributions": 120, "id": 1},
+                {"login": "bob", "contributions": 30, "id": 2},
+            ],
+        )
+
+    targets = [
+        TrackTarget(entity_id=1, source="github", native_id="gone/repo"),
+        TrackTarget(entity_id=2, source="github", native_id="live/repo"),
+    ]
+    drafts = GitHubCollector(client=_client(handler), min_interval_s=0, token="x").contributors(
+        targets, WINDOW
+    )
+    assert len(drafts) == 1, "the missing repo is skipped, the live one still enriches"
+    d = drafts[0]
+    assert d.event_type == "repo_contributors"
+    assert d.source_event_uid == "repo_contributors:live/repo"  # idempotent per repo
+    assert d.payload["full_name"] == "live/repo"
+    assert d.payload["contributors"] == [
+        {"login": "alice", "contributions": 120},
+        {"login": "bob", "contributions": 30},
+    ]
 
 
 # --- arXiv parsing ----------------------------------------------------------
@@ -342,6 +379,196 @@ def test_hf_track_skips_transient_network_errors() -> None:
     ]
     drafts = HuggingFaceCollector(client=_client(handler), min_interval_s=0).track(targets, WINDOW)
     assert len(drafts) == 1 and drafts[0].payload["downloads"] == 7
+
+
+# --- PyPI (track snapshot + metadata enrichment) ----------------------------
+
+
+def test_pypi_discover_is_empty() -> None:
+    """PyPI has no trending feed — discover contributes nothing (anchors arrive via seeds/refs)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("discover() must not hit the network")
+
+    assert PyPICollector(client=_client(handler), min_interval_s=0).discover(WINDOW) == []
+
+
+def test_pypi_track_snapshots_downloads_and_skips_missing() -> None:
+    """A live package yields a pypi_snapshot with downloads_7d; a 404 (no stats) skips it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "no-stats" in str(request.url):
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(
+            200,
+            json={"data": {"last_day": 100, "last_week": 4200, "last_month": 18000},
+                  "package": "vllm", "type": "recent_downloads"},
+        )
+
+    targets = [
+        TrackTarget(entity_id=1, source="pypi", native_id="no-stats"),
+        TrackTarget(entity_id=2, source="pypi", native_id="vllm"),
+    ]
+    drafts = PyPICollector(client=_client(handler), min_interval_s=0).track(targets, WINDOW)
+    assert len(drafts) == 1, "the statless package is skipped, the live one still snapshots"
+    d = drafts[0]
+    assert d.source == "pypi" and d.event_type == "pypi_snapshot"
+    assert d.payload == {"name": "vllm", "downloads_7d": 4200}
+
+
+def test_pypi_track_skips_transient_network_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "flaky" in str(request.url):
+            raise httpx.RemoteProtocolError("server disconnected")
+        return httpx.Response(200, json={"data": {"last_week": 7}})
+
+    targets = [
+        TrackTarget(entity_id=1, source="pypi", native_id="flaky"),
+        TrackTarget(entity_id=2, source="pypi", native_id="live"),
+    ]
+    drafts = PyPICollector(client=_client(handler), min_interval_s=0).track(targets, WINDOW)
+    assert len(drafts) == 1 and drafts[0].payload["downloads_7d"] == 7
+
+
+def test_pypi_metadata_records_requires_dist_and_skips_missing() -> None:
+    """A live package yields a pypi_metadata event with requires_dist; a 404 skips that target."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "gone" in str(request.url):
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(
+            200,
+            json={"info": {
+                "summary": "A high-throughput LLM inference engine.",
+                "requires_dist": ["torch>=2.0", "transformers>=4.40"],
+                "project_urls": {"Homepage": "https://github.com/vllm-project/vllm"},
+            }},
+        )
+
+    targets = [
+        TrackTarget(entity_id=1, source="pypi", native_id="gone"),
+        TrackTarget(entity_id=2, source="pypi", native_id="vllm"),
+    ]
+    drafts = PyPICollector(client=_client(handler), min_interval_s=0).metadata(targets)
+    assert len(drafts) == 1, "the gone package is skipped, the other still enriches"
+    d = drafts[0]
+    assert d.event_type == "pypi_metadata"
+    assert d.source_event_uid == "pypi_metadata:vllm"  # idempotent per package
+    assert d.payload["name"] == "vllm"
+    assert d.payload["requires_dist"] == ["torch>=2.0", "transformers>=4.40"]
+    assert d.payload["project_urls"]["Homepage"] == "https://github.com/vllm-project/vllm"
+    assert d.payload["summary"] == "A high-throughput LLM inference engine."
+
+
+def test_pypi_metadata_defaults_missing_fields() -> None:
+    """A sparse package (no requires_dist/project_urls) yields empty containers, not None."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"info": {"summary": None}})
+
+    targets = [TrackTarget(entity_id=1, source="pypi", native_id="bare")]
+    drafts = PyPICollector(client=_client(handler), min_interval_s=0).metadata(targets)
+    assert drafts[0].payload["requires_dist"] == []
+    assert drafts[0].payload["project_urls"] == {}
+    assert drafts[0].payload["summary"] is None
+
+
+# --- OpenRouter (model listings + rankings usage) ---------------------------
+
+
+def _or_models_payload() -> dict:
+    return {
+        "data": [
+            {
+                "id": "poolside/laguna-s-2.1",
+                "canonical_slug": "poolside/laguna-s-2.1-20260720",
+                "hugging_face_id": "poolside/Laguna-S-2.1",
+                "name": "Poolside: Laguna S 2.1",
+                "created": int((NOW - timedelta(days=1)).timestamp()),
+                "pricing": {"prompt": "0.0000001", "completion": "0.0000002"},
+                "context_length": 1048576,
+            },
+            {
+                "id": "moonshotai/kimi-k3",
+                "canonical_slug": "moonshotai/kimi-k3-20260715",
+                "hugging_face_id": None,
+                "name": "MoonshotAI: Kimi K3",
+                "created": int((NOW - timedelta(days=30)).timestamp()),  # old — not re-listed
+                "pricing": {},
+            },
+        ]
+    }
+
+
+def _or_handler(rankings_status: int = 200) -> object:
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json=_or_models_payload())
+        if "/rankings/tools" in url:
+            return httpx.Response(
+                rankings_status,
+                json={
+                    "data": [
+                        # In-window weekly point: a listed model and a delisted slug.
+                        {
+                            "x": "2026-06-30",
+                            "ys": {
+                                "moonshotai/kimi-k3-20260715": 123,
+                                "moonshotai/kimi-k3-20260715:free": 7,
+                                "gone/x": 5,
+                                "Others": 164790526,
+                            },
+                        },
+                        {"x": "2026-05-01", "ys": {"moonshotai/kimi-k3-20260715": 99}},  # too old
+                    ]
+                },
+            )
+        return httpx.Response(404, json={"error": {"message": "Not Found", "code": 404}})
+
+    return handler
+
+
+def test_openrouter_lists_new_models_and_rankings_in_window() -> None:
+    drafts = OpenRouterCollector(client=_client(_or_handler()), min_interval_s=0).discover(WINDOW)
+    by_type = {d.event_type: d for d in drafts}
+
+    listed = by_type["or_model_listed"]  # only the model created inside the window
+    assert listed.source_event_uid == "or_model:poolside/laguna-s-2.1"
+    assert listed.payload["hugging_face_id"] == "poolside/Laguna-S-2.1"
+    assert sum(d.event_type == "or_model_listed" for d in drafts) == 1
+
+    ranks = [d for d in drafts if d.event_type == "or_rankings"]
+    uids = sorted(d.source_event_uid for d in ranks)
+    assert uids == [  # in-window point only; the "Others" aggregate bucket is not a model
+        "or_rank:tools:2026-06-30:gone/x",
+        "or_rank:tools:2026-06-30:moonshotai/kimi-k3-20260715",
+        "or_rank:tools:2026-06-30:moonshotai/kimi-k3-20260715:free",
+    ]
+    kimi = next(d for d in ranks if d.source_event_uid.endswith("kimi-k3-20260715"))
+    assert kimi.payload["tokens"] == 123
+    # Metadata joined from the model list via canonical_slug, so identity can anchor the event.
+    assert kimi.payload["name"] == "MoonshotAI: Kimi K3"
+    free = next(d for d in ranks if d.source_event_uid.endswith(":free"))
+    assert free.payload["name"] == "MoonshotAI: Kimi K3", "variant shares base-model identity"
+    gone = next(d for d in ranks if "gone/x" in d.source_event_uid)
+    assert gone.payload["name"] is None, "a delisted slug carries no metadata (stays unowned)"
+
+
+def test_openrouter_rerun_yields_identical_uids() -> None:
+    """Same window, same payloads -> byte-identical natural keys (framework dedupe no-ops)."""
+    collector = OpenRouterCollector(client=_client(_or_handler()), min_interval_s=0)
+    first = sorted(d.source_event_uid for d in collector.discover(WINDOW))
+    second = sorted(d.source_event_uid for d in collector.discover(WINDOW))
+    assert first == second
+
+
+def test_openrouter_dead_rankings_category_is_isolated() -> None:
+    """The rankings endpoints are unofficial: a dead category skips, the model list still lands."""
+    drafts = OpenRouterCollector(
+        client=_client(_or_handler(rankings_status=404)), min_interval_s=0
+    ).discover(WINDOW)
+    assert [d.event_type for d in drafts] == ["or_model_listed"]
 
 
 # --- backfill filter (pure) -------------------------------------------------

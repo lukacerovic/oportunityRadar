@@ -16,16 +16,22 @@ Three providers, one signature (:func:`complete_card`):
 from __future__ import annotations
 
 import json
+import logging
+import subprocess
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 from seismo.config import settings
 
+logger = logging.getLogger(__name__)
+
 CARD_TOOL_NAME = "emit_card"
 BRIEF_TOOL_NAME = "emit_brief"
+COUNCIL_TOOL_NAME = "emit_verdict"
 _MAX_TOKENS = 2048
 _BRIEF_MAX_TOKENS = 3072  # the brief schema (transmission path + exposures + observables) is larger
+_COUNCIL_MAX_TOKENS = 768  # a verdict is small: stance + confidence + one short argument
 
 # Rough per-MTok (input, output) USD, for cost logging + the budget ceiling only. Confirm against
 # the current price sheet at go-live; dev/CI never spends (mock/ollama = $0).
@@ -90,6 +96,30 @@ def complete_brief(
     )
 
 
+def complete_council(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+    purpose: str = "live",
+) -> LLMResult:
+    """Produce one council verdict as structured JSON (doc 08 §5). Same forced-tool-call
+    discipline as :func:`complete_brief`; ``fallback`` is the deterministic verdict the ``mock``
+    provider returns verbatim (a neutral ``watch`` stance — mock never asserts an unfounded
+    judgement)."""
+    return _complete(
+        system,
+        user,
+        schema,
+        fallback=fallback,
+        purpose=purpose,
+        tool_name=COUNCIL_TOOL_NAME,
+        tool_description="Return this council member's verdict on the impact brief.",
+        max_tokens=_COUNCIL_MAX_TOKENS,
+    )
+
+
 def _complete(
     system: str,
     user: str,
@@ -108,6 +138,25 @@ def _complete(
         return _ollama(system, user, schema, max_tokens)
     if provider == "anthropic":
         return _anthropic(system, user, schema, tool_name, tool_description, max_tokens, purpose)
+    if provider == "claude_cli":
+        # The card/brief `schema` is a plain JSON schema, so it maps 1:1 onto the CLI's
+        # ``--json-schema`` structured-output flag (unlike Anthropic's forced-tool input_schema
+        # wrapper). Fail-closed: on any CLI failure ``_claude_cli`` returns None and we hand back
+        # the caller's deterministic ``fallback`` card, so this path never raises.
+        result = _claude_cli(f"{system}\n\n{user}", schema)
+        return LLMResult(
+            content=result if result is not None else fallback,
+            # A failed CLI call must not carry the same model tag as a real generation (doc 13 —
+            # this exact ambiguity produced a mislabeled comprehension-card version once already).
+            model=(
+                f"claude_cli:{settings.claude_cli_model}"
+                if result is not None
+                else "claude_cli:fallback"
+            ),
+            # cost_usd=0: CLI-session usage isn't metered per-token on this path, so we don't
+            # fabricate an estimate. Not a real free lunch — just not separately billed here.
+            cost_usd=Decimal(0),
+        )
     raise ValueError(f"unknown LLM provider {provider!r}")
 
 
@@ -189,3 +238,102 @@ def _anthropic(
         input_tokens=message.usage.input_tokens,
         output_tokens=message.usage.output_tokens,
     )
+
+
+def _claude_cli(
+    prompt: str, schema: dict[str, Any], *, timeout_s: int | None = None
+) -> dict[str, Any] | None:
+    """Shell out to the installed ``claude`` CLI in non-interactive print mode with a JSON schema,
+    returning the parsed structured result as a dict, or ``None`` on *any* failure.
+
+    Verified against the installed CLI: ``-p/--print`` (non-interactive), ``--bare`` (skip hooks/
+    plugins/CLAUDE.md discovery), ``--model`` (alias override), ``--output-format json`` (wraps the
+    reply in a single JSON result object), and ``--json-schema`` (constrain structured output) are
+    all real flags. The wrapper object carries the answer in its ``result`` field (and signals
+    failures via ``is_error``); ``result`` may be a dict or a JSON-encoded string.
+
+    Fail-closed by contract: subprocess timeout, non-zero exit, unparseable JSON, an ``is_error``
+    wrapper, or a missing/misshapen result all log a warning and return ``None`` — never raise.
+    """
+    timeout = settings.claude_cli_timeout_s if timeout_s is None else timeout_s
+    cmd = [
+        settings.claude_cli_bin,
+        "-p",
+        "--bare",
+        "--model",
+        settings.claude_cli_model,
+        "--output-format",
+        "json",
+        "--json-schema",
+        json.dumps(schema),
+        prompt,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        logger.warning("claude_cli: timed out after %ss", timeout)
+        return None
+    except OSError as exc:  # binary missing / not executable
+        logger.warning("claude_cli: could not launch %r (%s)", settings.claude_cli_bin, exc)
+        return None
+
+    if proc.returncode != 0:
+        logger.warning(
+            "claude_cli: exit %d — %s", proc.returncode, (proc.stderr or "").strip()[:500]
+        )
+        return None
+
+    try:
+        wrapper = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        logger.warning("claude_cli: stdout was not JSON (%s)", exc)
+        return None
+
+    try:
+        if wrapper.get("is_error"):
+            logger.warning("claude_cli: CLI reported an error — %s", wrapper.get("result"))
+            return None
+        result = wrapper["result"]
+        if isinstance(result, str):
+            result = json.loads(result)
+        if not isinstance(result, dict):
+            raise TypeError(f"expected dict result, got {type(result).__name__}")
+        return result
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        logger.warning("claude_cli: could not extract structured result (%s)", exc)
+        return None
+
+
+def complete_triage(facts: dict[str, Any]) -> dict[str, Any] | None:
+    """Decide whether an entity described by ``facts`` is worth tracking.
+
+    Returns a plain ``dict`` (``{"decision": "track"|"skip", "sector": ...}``) — intentionally *not*
+    an :class:`LLMResult`, since triage has no per-token accounting — or ``None`` to signal the
+    caller to fall back to its own deterministic logic.
+
+    * ``mock`` → ``None`` immediately (the mock provider is $0 / no network by contract).
+    * ``claude_cli`` → constrained structured call via :func:`_claude_cli` (``None`` on failure).
+    * anything else (``ollama``, ``anthropic``) → ``None`` for now.
+    """
+    provider = settings.llm_provider
+    if provider == "mock":
+        return None
+    if provider == "claude_cli":
+        schema = {
+            "type": "object",
+            "properties": {
+                "decision": {"type": "string", "enum": ["track", "skip"]},
+                "sector": {"type": "string"},
+            },
+            "required": ["decision"],
+        }
+        prompt = (
+            "You are triaging entities for a technology-signal radar. Decide whether the entity "
+            "described by the following facts is worth tracking. Answer with decision='track' if "
+            "it is a substantive, real, on-topic entity worth monitoring, otherwise 'skip'. "
+            "Include a short lowercase 'sector' label when you can.\n\n"
+            f"facts: {json.dumps(facts, separators=(',', ':'), default=str)}"
+        )
+        return _claude_cli(prompt, schema)
+    # TODO(step >1): wire ollama / anthropic triage backends; out of scope for this port.
+    return None

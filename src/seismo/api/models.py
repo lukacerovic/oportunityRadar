@@ -32,6 +32,7 @@ class RadarEntity(BaseModel):
     provisional: bool  # cold-start thin cohort (doc 14 §5)
     sparkline: list[float]  # last 30d of the headline metric, oldest→newest
     sources: list[str]  # collectors that touched it: github/hn/arxiv/hf/seed/…
+    gated: bool  # has ever passed the weekly significance gate (queued for/got a brief)
 
 
 class RadarResponse(BaseModel):
@@ -39,6 +40,7 @@ class RadarResponse(BaseModel):
     count: int
     entities: list[RadarEntity]
     source_counts: dict[str, int] = {}  # entities per collection source, whole visible universe
+    gated_count: int = 0  # entities that have ever passed the gate, whole visible universe
 
 
 class MaturityRung(BaseModel):
@@ -80,12 +82,13 @@ class EvidenceItem(BaseModel):
     """One human-readable piece of evidence attached to an entity — a source you can open and read
     (the HN story, the project repo, the paper, the fetched launch/README text)."""
 
-    source: str  # raw collector source: hn | github | arxiv | hf | web | seed
+    source: str  # raw collector source: hn | github | arxiv | hf | web | seed | openrouter
     kind: str  # display label, e.g. "Hacker News", "arXiv paper", "Launch page", "README"
     title: str | None
     url: str | None  # a link the reader can open
     text: str | None  # readable content: abstract, launch-page / README body (truncated)
-    score: int | None  # attention/usage number for this item (HN points, HF downloads)
+    score: int | None  # attention/usage number for this item (HN points, HF downloads, OR tokens)
+    unit: str | None = None  # what `score` counts — "points"/"downloads"/"tokens"; None if no score
     occurred_at: datetime
 
 
@@ -223,6 +226,16 @@ class BriefExposure(BaseModel):
     magnitude_class: str  # marginal | material | structural
 
 
+class CouncilVerdictItem(BaseModel):
+    """One independent perspective's judgement on this brief (doc 08 §5)."""
+
+    role: str  # skeptic | evidence_auditor | mechanism_reviewer
+    stance: str  # adopt | watch | reject
+    confidence: str  # low | med | high
+    reasoning: str
+    model: str
+
+
 class Brief(BaseModel):
     """One impact-brief version (doc 08 §2) as stored, plus its review envelope."""
 
@@ -246,6 +259,8 @@ class Brief(BaseModel):
     summary: str | None = None
     evidence_refs: list[int] = []
     versions: list[int] = []  # all versions for this entity, newest first
+    council: list[CouncilVerdictItem] = []  # empty unless this version went through council review
+    council_stance: str | None = None  # deterministic majority vote; None until 3 verdicts exist
 
 
 class BriefListItem(BaseModel):
@@ -276,6 +291,7 @@ class ChangeItem(BaseModel):
     entity_id: int | None
     text: str
     payload: dict[str, Any] = {}
+    category: str | None = None
 
 
 class ChangesResponse(BaseModel):

@@ -31,18 +31,21 @@ const SOURCES: { key: string; label: string }[] = [
 export default async function RadarPage({
   searchParams,
 }: {
-  searchParams: { state?: string; source?: string };
+  searchParams: { state?: string; source?: string; gated?: string };
 }) {
   const active = (searchParams.state as MomentumState | undefined) ?? "all";
   const activeSource = searchParams.source ?? "all";
+  const activeGated = searchParams.gated === "true";
 
-  // Build a URL that changes one filter while preserving the other (state ↔ source).
-  const hrefWith = (next: { state?: string; source?: string }) => {
+  // Build a URL that changes one filter while preserving the others (state ↔ source ↔ gated).
+  const hrefWith = (next: { state?: string; source?: string; gated?: boolean }) => {
     const state = next.state ?? (active === "all" ? undefined : active);
     const src = next.source ?? (activeSource === "all" ? undefined : activeSource);
+    const gated = next.gated ?? activeGated;
     const q = new URLSearchParams();
     if (state && state !== "all") q.set("state", state);
     if (src && src !== "all") q.set("source", src);
+    if (gated) q.set("gated", "true");
     const s = q.toString();
     return s ? `/?${s}` : "/";
   };
@@ -52,6 +55,7 @@ export default async function RadarPage({
     data = await getRadar({
       state: active === "all" ? undefined : active,
       source: activeSource === "all" ? undefined : activeSource,
+      gated: activeGated,
       limit: 240,
     });
   } catch (e) {
@@ -85,7 +89,7 @@ export default async function RadarPage({
               </span>
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {FILTERS.map((f) => {
               const on = f === active;
               const color = f === "all" ? "#2DD4BF" : STATE_META[f].color;
@@ -109,10 +113,28 @@ export default async function RadarPage({
                 </Link>
               );
             })}
+            <span className="mx-1 h-4 w-px bg-border" />
+            <Link
+              href={hrefWith({ gated: !activeGated })}
+              title="Only entities that have ever passed the weekly significance gate — queued for or already given a brief."
+              className={`rounded-full border px-3 py-1 text-xs transition ${
+                activeGated ? "text-bg" : "text-muted hover:text-text"
+              }`}
+              style={
+                activeGated
+                  ? { background: "#A78BFA", borderColor: "#A78BFA" }
+                  : { borderColor: "#1E2A2C" }
+              }
+            >
+              📋 Gated
+              {data.gated_count != null ? (
+                <span className="ml-1.5 opacity-70">{data.gated_count}</span>
+              ) : null}
+            </Link>
           </div>
         </div>
 
-        {active === "all" && activeSource === "all" && (
+        {active === "all" && activeSource === "all" && !activeGated && (
           <MoversStrip entities={data.entities} />
         )}
 

@@ -96,6 +96,12 @@ METRIC_SPECS: tuple[MetricSpec, ...] = (
         "downloads_7d",
         composite=True,
     ),
+    # Weekly tokens routed through OpenRouter — paid inference, the most demand-like usage signal
+    # we have. A *level* the source already windows (weekly leaderboard points), never filled;
+    # sparse by construction (top-10 per category, DECISIONS.md 2026-07-24).
+    MetricSpec(
+        "or_tokens_wk", "level", "usage", "openrouter", "or_rankings", "tokens", composite=True
+    ),
     MetricSpec(
         "hn_points_7d",
         "rolling",
@@ -110,6 +116,17 @@ METRIC_SPECS: tuple[MetricSpec, ...] = (
 
 COMPOSITE_METRICS: frozenset[str] = frozenset(s.name for s in METRIC_SPECS if s.composite)
 EVIDENCE_TYPES: frozenset[str] = frozenset(s.evidence_type for s in METRIC_SPECS)
+
+# Hype-gap groups (idea-spec principle 3): "attention" (talk — HN points) vs "usage" (real
+# adoption — downloads). Derived from ``MetricSpec.evidence_type`` so the split stays correct as
+# new metrics land; ``participation`` (gh_stars/gh_forks) belongs to neither and is excluded from
+# both groups by construction.
+ATTENTION_METRICS: frozenset[str] = frozenset(
+    s.name for s in METRIC_SPECS if s.evidence_type == "attention"
+)
+ADOPTION_METRICS: frozenset[str] = frozenset(
+    s.name for s in METRIC_SPECS if s.evidence_type == "usage"
+)
 
 
 @dataclass

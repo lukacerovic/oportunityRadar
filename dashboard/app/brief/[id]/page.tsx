@@ -6,6 +6,7 @@ import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
 import { BriefActions } from "@/components/BriefActions";
 import { BriefScoring } from "@/components/BriefScoring";
+import { CouncilReview } from "@/components/CouncilReview";
 import { InfoButton } from "@/components/InfoModal";
 import { HELP } from "@/lib/help";
 
@@ -176,6 +177,8 @@ export default async function BriefPage({ params }: { params: { id: string } }) 
             {brief.evidence_refs.length > 12 ? " …" : ""}
           </div>
         )}
+
+        <CouncilReview verdicts={brief.council} aggregate={brief.council_stance} />
 
         {/* review action bar */}
         <section className="panel p-5">

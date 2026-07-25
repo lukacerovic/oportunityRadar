@@ -30,7 +30,12 @@ from sqlalchemy.orm import Session
 from seismo.config import settings
 from seismo.db import canonical_entity_id
 from seismo.trajectory.cohorts import EntityFacts, entity_facts
-from seismo.trajectory.metrics import BREADTH_METRIC, COMPOSITE_METRICS
+from seismo.trajectory.metrics import (
+    ADOPTION_METRICS,
+    ATTENTION_METRICS,
+    BREADTH_METRIC,
+    COMPOSITE_METRICS,
+)
 
 VELOCITY_LAG_DAYS = 7
 
@@ -47,6 +52,9 @@ class DaySignal:
     cohort_n: int = 0  # size of the cohort used for ranking
     cohort_key: str = ""
     provisional: bool = False  # cohort under min size even after fallback (doc 14 §5)
+    attention_p: float = 0.0  # mean cohort pctl of attention-group metrics present today
+    adoption_p: float = 0.0  # mean cohort pctl of adoption-group metrics present today
+    hype_gap: float = 0.0  # attention_p - adoption_p (talk minus real usage; idea-spec principle 3)
 
 
 @dataclass
@@ -64,9 +72,10 @@ def compute(session: Session, as_of: datetime) -> VelocityData:
     series = _load_series(session, as_of)  # metric -> entity -> {day: value}
     breadth = series.get(BREADTH_METRIC, {})
 
-    # 7-day-change velocities per composite metric.
+    # 7-day-change velocities per ranked metric. Composite metrics feed the momentum ``p``;
+    # attention metrics are ranked too (for the hype gap) but stay OUT of the composite ``p``.
     velocity: dict[str, dict[int, dict[date, Decimal]]] = {}
-    for metric in COMPOSITE_METRICS:
+    for metric in COMPOSITE_METRICS | ATTENTION_METRICS:
         velocity[metric] = _velocities(series.get(metric, {}))
 
     cohort_of = _assign_cohorts(facts, as_of.date())
@@ -155,28 +164,39 @@ def _build_signals(
 
     signals: dict[int, dict[date, DaySignal]] = defaultdict(dict)
 
-    # Percentile per (metric, day): rank an entity's vel7 among ALL cohort members (missing = 0),
-    # mirroring SQL percent_rank (ties share the lower rank; lone cohort ⇒ 0).
-    for by_entity in velocity.values():
-        days_by_cohort: dict[str, set[date]] = defaultdict(set)
-        for eid, vel in by_entity.items():
-            days_by_cohort[cohort_of[eid][0]].update(vel)
-        for ckey, days in days_by_cohort.items():
-            member_ids = members[ckey]
-            for d in days:
-                values = [by_entity.get(m, {}).get(d, Decimal(0)) for m in member_ids]
-                ranks = _percent_ranks(values)
-                for m, pctl in zip(member_ids, ranks, strict=True):
-                    if d not in by_entity.get(m, {}):
-                        continue  # only record days the entity actually has a velocity
-                    sig = signals[m].setdefault(d, _new_signal(cohort_of[m]))
-                    sig.p = max(sig.p, pctl)
-                    if pctl >= settings.momentum_p_simmering:
-                        sig.count_60 += 1
-                    if pctl >= settings.momentum_p_accelerating:
-                        sig.count_80 += 1
-                    if pctl >= settings.momentum_p_breakout:
-                        sig.count_95 += 1
+    # Percentile per (metric, entity, day): rank each entity's vel7 among ALL cohort members.
+    pctls = {
+        metric: _metric_percentiles(by_entity, cohort_of, members)
+        for metric, by_entity in velocity.items()
+    }
+
+    # Composite ``p`` and tier counts: max/tally over the composite metrics only — attention is
+    # ranked above but deliberately excluded here (idea-spec principle 3; it feeds hype, not p).
+    for metric in COMPOSITE_METRICS:
+        for eid, day_pctl in pctls.get(metric, {}).items():
+            for d, pctl in day_pctl.items():
+                sig = signals[eid].setdefault(d, _new_signal(cohort_of[eid]))
+                sig.p = max(sig.p, pctl)
+                if pctl >= settings.momentum_p_simmering:
+                    sig.count_60 += 1
+                if pctl >= settings.momentum_p_accelerating:
+                    sig.count_80 += 1
+                if pctl >= settings.momentum_p_breakout:
+                    sig.count_95 += 1
+
+    # Hype gap: attention-group mean pctl minus adoption-group mean pctl, per (entity, day). A
+    # group with no metric present that day defaults to 0.0 (idea-spec: missing group is 0, not
+    # None) — never skip the entity. Ported from z-score space into percentile space.
+    attn = _group_pctls(ATTENTION_METRICS, pctls)
+    adopt = _group_pctls(ADOPTION_METRICS, pctls)
+    for eid in set(attn) | set(adopt):
+        e_attn, e_adopt = attn.get(eid, {}), adopt.get(eid, {})
+        for d in set(e_attn) | set(e_adopt):
+            a_p, u_p, gap = _hype_signal(e_attn.get(d, []), e_adopt.get(d, []))
+            sig = signals[eid].setdefault(d, _new_signal(cohort_of.get(eid, ("", 0, False))))
+            sig.attention_p = a_p
+            sig.adoption_p = u_p
+            sig.hype_gap = gap
 
     # Fold breadth onto existing signal days (and create bare signal days for breadth-only info).
     for eid, day_values in breadth.items():
@@ -184,6 +204,53 @@ def _build_signals(
             sig = signals[eid].setdefault(d, _new_signal(cohort_of.get(eid, ("", 0, False))))
             sig.breadth = int(v)
     return signals
+
+
+def _metric_percentiles(
+    by_entity: dict[int, dict[date, Decimal]],
+    cohort_of: dict[int, tuple[str, int, bool]],
+    members: dict[str, list[int]],
+) -> dict[int, dict[date, float]]:
+    """Cohort percentile of each entity's vel7 per day: rank among ALL cohort members (missing =
+    0), mirroring SQL percent_rank (ties share the lower rank; lone cohort ⇒ 0). Records only the
+    days an entity actually has a velocity."""
+    out: dict[int, dict[date, float]] = defaultdict(dict)
+    days_by_cohort: dict[str, set[date]] = defaultdict(set)
+    for eid, vel in by_entity.items():
+        days_by_cohort[cohort_of[eid][0]].update(vel)
+    for ckey, days in days_by_cohort.items():
+        member_ids = members[ckey]
+        for d in days:
+            values = [by_entity.get(m, {}).get(d, Decimal(0)) for m in member_ids]
+            ranks = _percent_ranks(values)
+            for m, pctl in zip(member_ids, ranks, strict=True):
+                if d in by_entity.get(m, {}):
+                    out[m][d] = pctl
+    return out
+
+
+def _group_pctls(
+    metric_names: frozenset[str],
+    pctls: dict[str, dict[int, dict[date, float]]],
+) -> dict[int, dict[date, list[float]]]:
+    """Collect a group's per-metric percentiles into ``entity -> day -> [pctl, ...]``."""
+    acc: dict[int, dict[date, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for metric in metric_names:
+        for eid, day_pctl in pctls.get(metric, {}).items():
+            for d, pctl in day_pctl.items():
+                acc[eid][d].append(pctl)
+    return acc
+
+
+def _hype_signal(
+    attention_pctls: list[float], adoption_pctls: list[float]
+) -> tuple[float, float, float]:
+    """(attention_p, adoption_p, hype_gap) from a day's group percentiles. Each group value is the
+    mean of its present metrics; an empty group is 0.0 (idea-spec: missing group defaults to 0.0,
+    not None). ``hype_gap = attention_p - adoption_p``."""
+    a_p = sum(attention_pctls) / len(attention_pctls) if attention_pctls else 0.0
+    u_p = sum(adoption_pctls) / len(adoption_pctls) if adoption_pctls else 0.0
+    return a_p, u_p, a_p - u_p
 
 
 def _new_signal(cohort: tuple[str, int, bool]) -> DaySignal:

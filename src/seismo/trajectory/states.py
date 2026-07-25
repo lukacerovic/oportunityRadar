@@ -111,6 +111,14 @@ def replay(
             emitted_tier = cap_tier
         state = "fading" if fading else STATES[emitted_tier]
 
+        # Hype is an orthogonal quality annotation (not a hysteresis-tracked state): loud attention,
+        # thin real adoption, narrow corroboration. Exposed via inputs JSONB, not the STATES ladder.
+        hype = (
+            sig.attention_p >= settings.hype_attention_p
+            and sig.hype_gap >= settings.hype_gap_min
+            and sig.breadth <= settings.hype_max_breadth
+        )
+
         out[day] = DayState(
             state=state,
             score=sig.p,
@@ -127,6 +135,10 @@ def replay(
                 "provisional": sig.provisional,
                 "cohort_n": sig.cohort_n,
                 "cohort_key": sig.cohort_key,
+                "attention_p": round(sig.attention_p, 4),
+                "adoption_p": round(sig.adoption_p, 4),
+                "hype_gap": round(sig.hype_gap, 4),
+                "hype": hype,
             },
         )
         day += timedelta(days=1)

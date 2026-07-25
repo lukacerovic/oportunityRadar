@@ -59,7 +59,8 @@ def _attach_source(session: Session, eid: int, source: str, occurred: datetime) 
     rid = int(
         session.execute(
             text(
-                "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at, payload)"
+                "INSERT INTO raw_events"
+                " (source, source_event_uid, event_type, occurred_at, payload)"
                 " VALUES (:s, :uid, 'test', :o, CAST('{}' AS JSONB)) RETURNING id"
             ),
             {"s": source, "uid": f"{source}-{next(_UID)}", "o": occurred},
@@ -67,7 +68,8 @@ def _attach_source(session: Session, eid: int, source: str, occurred: datetime) 
     )
     session.execute(
         text(
-            "INSERT INTO entity_links (entity_id, raw_event_id, rule, confidence, evidence_occurred_at)"
+            "INSERT INTO entity_links"
+            " (entity_id, raw_event_id, rule, confidence, evidence_occurred_at)"
             " VALUES (:e, :r, 'attach', 1.0, :o)"
         ),
         {"e": eid, "r": rid, "o": occurred},
@@ -134,8 +136,8 @@ def test_radar_source_filter_and_counts_are_by_origin(clean_db: Session) -> None
     t0 = datetime(2024, 1, 1, tzinfo=UTC)
     # A GitHub repo that also trended on HN: its origin is still GitHub, not Hacker News.
     repo = _entity(session, "acme/tool", created=t0, attrs={"anchors": {"github": "acme/tool"}})
-    paper = _entity(session, "A Paper", created=t0, attrs={"anchors": {"arxiv": "2405.00001"}})
-    launch = _entity(session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}})
+    _entity(session, "A Paper", created=t0, attrs={"anchors": {"arxiv": "2405.00001"}})
+    _entity(session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}})
     _attach_source(session, repo, "github", t0)
     _attach_source(session, repo, "hn", t0)  # HN attention on a GitHub entity
     session.flush()
@@ -160,17 +162,27 @@ def test_dossier_exposes_readable_sources(clean_db: Session) -> None:
     session = clean_db
     t0 = datetime(2024, 1, 1, tzinfo=UTC)
     eid = _entity(
-        session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}, "text": "Kimi K3 is a model."}
+        session,
+        "Kimi K3",
+        created=t0,
+        attrs={"anchors": {"web": "kimi-k3"}, "text": "Kimi K3 is a model."},
     )
 
     def _raw_event(source: str, etype: str, payload: dict) -> int:
         rid = int(
             session.execute(
                 text(
-                    "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at, payload)"
+                    "INSERT INTO raw_events"
+                    " (source, source_event_uid, event_type, occurred_at, payload)"
                     " VALUES (:s, :uid, :et, :o, CAST(:p AS JSONB)) RETURNING id"
                 ),
-                {"s": source, "uid": f"{source}-{next(_UID)}", "et": etype, "o": t0, "p": _json(payload)},
+                {
+                    "s": source,
+                    "uid": f"{source}-{next(_UID)}",
+                    "et": etype,
+                    "o": t0,
+                    "p": _json(payload),
+                },
             ).scalar_one()
         )
         session.execute(
@@ -182,12 +194,19 @@ def test_dossier_exposes_readable_sources(clean_db: Session) -> None:
         )
         return rid
 
-    _raw_event("hn", "story", {"title": "Kimi K3 is now live", "url": "https://kimi.com", "points": 641})
-    _raw_event("web", "launch_page", {"slug": "kimi-k3", "url": "https://kimi.com", "text": "Kimi K3 is a 1T MoE model."})
-    _raw_event("hf", "model_snapshot", {"id": "moonshotai/kimi-k3", "downloads": 5})  # snapshots excluded
+    _raw_event(
+        "hn", "story", {"title": "Kimi K3 is now live", "url": "https://kimi.com", "points": 641}
+    )
+    _raw_event(
+        "web",
+        "launch_page",
+        {"slug": "kimi-k3", "url": "https://kimi.com", "text": "Kimi K3 is a 1T MoE model."},
+    )
+    # snapshots excluded
+    _raw_event("hf", "model_snapshot", {"id": "moonshotai/kimi-k3", "downloads": 5})
     session.flush()
 
-    d = _client(session).get("/entities/{}".format(eid)).json()
+    d = _client(session).get(f"/entities/{eid}").json()
     assert d["description"] == "Kimi K3 is a model."
     kinds = {e["kind"] for e in d["evidence"]}
     assert kinds == {"Hacker News", "Launch page"}  # the model_snapshot is filtered out

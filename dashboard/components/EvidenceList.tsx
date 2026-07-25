@@ -22,7 +22,9 @@ export function EvidenceList({ items }: { items: EvidenceItem[] }) {
                   {it.kind}
                 </span>
                 {it.score != null && (
-                  <span className="text-[11px] text-faint">{compactNum(it.score)} pts/dl</span>
+                  <span className="text-[11px] text-faint">
+                    {compactNum(it.score)} {it.unit ?? ""}
+                  </span>
                 )}
                 <span className="text-[11px] text-faint">{shortDate(it.occurred_at)}</span>
               </div>

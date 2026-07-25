@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from seismo.api import models as m
+from seismo.checkpoints.council_vote import aggregate_stance
 from seismo.config import settings
 from seismo.db import canonical_entity_id, category_asof, session_scope
 from seismo.health import run_checks
@@ -78,6 +79,7 @@ def radar(
     theme: str | None = Query(None),
     state: str | None = Query(None),
     source: str | None = Query(None),
+    gated: bool = Query(False, description="Only entities that have ever passed the gate."),
     limit: int = Query(200, le=1000),
 ) -> m.RadarResponse:
     """Momentum-ranked entity grid: breakout → dormant, then velocity (doc 10 §2)."""
@@ -103,14 +105,22 @@ def radar(
                 JOIN raw_events r ON r.id = l.raw_event_id
                 WHERE l.rule = 'attach' AND r.occurred_at <= :as_of
                 GROUP BY l.entity_id
+            ),
+            gp AS (
+                -- Ever passed the weekly significance gate, as of a week visible by :as_of_day —
+                -- a hindcast can't see a future week's gate pass (invariant 2).
+                SELECT DISTINCT entity_id FROM gate_decisions
+                WHERE decision = 'pass' AND week <= :as_of_day
             )
             SELECT e.id, e.canonical_name, e.entity_type, e.category,
                    COALESCE(ms.state, 'dormant') AS state, ms.inputs, lc.card,
-                   COALESCE(src.sources, ARRAY[]::text[]) AS sources
+                   COALESCE(src.sources, ARRAY[]::text[]) AS sources,
+                   (gp.entity_id IS NOT NULL) AS gated
             FROM entities e
             LEFT JOIN ms ON ms.entity_id = e.id
             LEFT JOIN lc ON lc.entity_id = e.id
             LEFT JOIN src ON src.entity_id = e.id
+            LEFT JOIN gp ON gp.entity_id = e.id
             """
                 + (
                     "JOIN entity_themes et ON et.entity_id = e.id "
@@ -122,6 +132,7 @@ def radar(
             WHERE e.merged_into IS NULL AND e.tracking_tier <> 'archived'
             """
                 + ("AND COALESCE(ms.state, 'dormant') = :state " if state else "")
+                + ("AND gp.entity_id IS NOT NULL " if gated else "")
                 + (
                     # Filter by ORIGIN, not "any event that touched it": an entity belongs to the
                     # registry it is anchored on. HN stories attach to the github/arxiv/hf thing
@@ -173,6 +184,17 @@ def radar(
         )
     ).mappings().one()
     source_counts = {k: int(counts_row[k]) for k in ("github", "arxiv", "hf", "hn")}
+    gated_count = session.execute(
+        text(
+            """
+            SELECT COUNT(DISTINCT g.entity_id) FROM gate_decisions g
+            JOIN entities e ON e.id = g.entity_id
+            WHERE g.decision = 'pass' AND g.week <= :as_of_day
+              AND e.merged_into IS NULL AND e.tracking_tier <> 'archived'
+            """
+        ),
+        {"as_of_day": as_of.date()},
+    ).scalar_one()
 
     spark = _sparklines(session, [r["id"] for r in rows], as_of)
     entities = []
@@ -192,10 +214,15 @@ def radar(
                 provisional=bool(inputs.get("provisional", False)),
                 sparkline=spark.get(r["id"], []),
                 sources=list(r["sources"] or []),
+                gated=bool(r["gated"]),
             )
         )
     return m.RadarResponse(
-        as_of=as_of, count=len(entities), entities=entities, source_counts=source_counts
+        as_of=as_of,
+        count=len(entities),
+        entities=entities,
+        source_counts=source_counts,
+        gated_count=int(gated_count),
     )
 
 
@@ -369,13 +396,14 @@ def _evidence_item(source: str, event_type: str, occurred_at: datetime, p: dict)
         except (TypeError, ValueError):
             return None
 
-    kind, title, url, txt, score = source, None, None, None, None
+    kind, title, url, txt, score, unit = source, None, None, None, None, None
     if event_type == "hn_discussion":
         kind, title, url, txt = "HN discussion", "Community discussion", p.get("url"), p.get("text")
     elif event_type == "launch_page":
         kind, url, title, txt = "Launch page", p.get("url"), p.get("name"), p.get("text")
     elif source == "hn":
-        kind, title, url, score = "Hacker News", p.get("title"), p.get("url"), _int(p.get("points"))
+        kind, title, url = "Hacker News", p.get("title"), p.get("url")
+        score, unit = _int(p.get("points")), "points"
     elif source == "github":
         fn = p.get("full_name") or p.get("repo")
         kind = "README" if event_type == "repo_readme" else "GitHub"
@@ -396,7 +424,13 @@ def _evidence_item(source: str, event_type: str, occurred_at: datetime, p: dict)
         mid = p.get("id") or p.get("modelId")
         kind, title = "Hugging Face", mid
         url = f"https://huggingface.co/{mid}" if mid else None
-        score, txt = _int(p.get("downloads")), p.get("description")
+        score, unit, txt = _int(p.get("downloads")), "downloads", p.get("description")
+    elif source == "openrouter":
+        mid = p.get("model_id")
+        kind = "OpenRouter rankings" if event_type == "or_rankings" else "OpenRouter listing"
+        title = p.get("name") or mid
+        url = f"https://openrouter.ai/{mid}" if mid else None
+        score, unit = _int(p.get("tokens")), "tokens/wk"
     elif source == "seed":
         kind, title = "Seed", p.get("name")
     return m.EvidenceItem(
@@ -406,6 +440,7 @@ def _evidence_item(source: str, event_type: str, occurred_at: datetime, p: dict)
         url=url,
         text=(str(txt)[:1500] if txt else None),
         score=score,
+        unit=unit,
         occurred_at=occurred_at,
     )
 
@@ -742,6 +777,19 @@ def brief_detail(
         text("SELECT canonical_name FROM entities WHERE id = :e"), {"e": entity_id}
     ).scalar()
     body = row["brief"] or {}
+    council_rows = (
+        session.execute(
+            text(
+                "SELECT role, stance, confidence, reasoning, model FROM council_verdicts "
+                "WHERE impact_brief_id = :b ORDER BY role"
+            ),
+            {"b": row["id"]},
+        )
+        .mappings()
+        .all()
+    )
+    council = [m.CouncilVerdictItem(**dict(c)) for c in council_rows]
+    council_stance = aggregate_stance([c.stance for c in council]) if len(council) == 3 else None
     return m.Brief(
         id=row["id"],
         entity_id=entity_id,
@@ -765,6 +813,8 @@ def brief_detail(
         summary=body.get("summary"),
         evidence_refs=body.get("evidence_refs") or [],
         versions=versions,
+        council=council,
+        council_stance=council_stance,
     )
 
 
@@ -852,22 +902,30 @@ def changes(day: str, session: Session = Depends(get_session)) -> m.ChangesRespo
     rows = (
         session.execute(
             text(
-                "SELECT kind, entity_id, text, payload FROM changes_daily "
-                "WHERE day = :d ORDER BY id"
+                "SELECT kind, entity_id, text, payload FROM changes_daily"
+                " WHERE day = :d ORDER BY id"
             ),
             {"d": target},
         )
         .mappings()
         .all()
     )
+    # Category as it was on `target`, not today's (invariant 2) — every entity_id only resolved
+    # once, since a day's changes can repeat the same entity across kinds.
+    day_end = datetime.combine(target, datetime.max.time(), tzinfo=UTC)
+    category_of: dict[int, str | None] = {}
     groups: dict[str, list[m.ChangeItem]] = {}
     for r in rows:
+        eid = r["entity_id"]
+        if eid is not None and eid not in category_of:
+            category_of[eid] = category_asof(session, eid, day_end)
         groups.setdefault(r["kind"], []).append(
             m.ChangeItem(
                 kind=r["kind"],
-                entity_id=r["entity_id"],
+                entity_id=eid,
                 text=r["text"],
                 payload=r["payload"] or {},
+                category=category_of.get(eid) if eid is not None else None,
             )
         )
     ordered = {k: groups[k] for k in _CHANGE_ORDER if k in groups}

@@ -73,21 +73,29 @@ def test_primary_anchor_per_source() -> None:
     assert primary_anchor("web", "launch_page", {"text": "no slug"}) is None
     # A generic enrich event (e.g. hn_discussion) attaches via the explicit anchor it carries.
     en = primary_anchor(
-        "enrich", "hn_discussion", {"anchor": {"registry": "web", "native_id": "kimi-k3"}, "text": "…"}
+        "enrich",
+        "hn_discussion",
+        {"anchor": {"registry": "web", "native_id": "kimi-k3"}, "text": "…"},
     )
     assert en.key == "web:kimi-k3"
 
 
 def test_hn_high_signal_launch_mints_web_anchor() -> None:
     # A registry-less but high-signal launch becomes a name-anchored ``web`` product entity.
-    a = primary_anchor("hn", "story", {"url": "https://kimi.com", "title": "Kimi K3 is now live", "points": 641})
+    a = primary_anchor(
+        "hn", "story", {"url": "https://kimi.com", "title": "Kimi K3 is now live", "points": 641}
+    )
     assert a == Anchor("web", "kimi-k3", "product", "Kimi K3")
 
     # Another launch/release story about the same product collapses onto the same anchor key.
     b = primary_anchor(
         "hn",
         "story",
-        {"url": "https://x.com/z/1", "title": "Kimi K3 released with a 1T-param MoE", "points": 240},
+        {
+            "url": "https://x.com/z/1",
+            "title": "Kimi K3 released with a 1T-param MoE",
+            "points": 240,
+        },
     )
     assert b.key == "web:kimi-k3"
 
@@ -95,21 +103,53 @@ def test_hn_high_signal_launch_mints_web_anchor() -> None:
 def test_hn_web_anchor_only_for_high_signal_named_launches() -> None:
     title = "Kimi K3 is now live"
     # Below the score floor → dropped as unowned context (not every link deserves an entity).
-    assert primary_anchor("hn", "story", {"url": "https://kimi.com", "title": title, "points": 42}) is None
-    # A tracked-registry link still wins over the web fallback.
     assert (
-        primary_anchor("hn", "story", {"url": "https://github.com/x/y", "title": title, "points": 999}).key
-        == "github:x/y"
-    )
-    # Popular but signal-less opinion / news / question posts are NOT promoted.
-    for noise in ("The Singularity will occur", "Why we moved off Kubernetes", "Japan develops a method"):
-        assert (
-            primary_anchor("hn", "story", {"url": "https://blog.example.com", "title": noise, "points": 800}) is None
-        ), noise
-    assert (
-        primary_anchor("hn", "story", {"url": "https://ask.example.com", "title": "Ask HN: best local LLM?", "points": 300})
+        primary_anchor("hn", "story", {"url": "https://kimi.com", "title": title, "points": 42})
         is None
     )
+    # A tracked-registry link still wins over the web fallback.
+    gh_payload = {"url": "https://github.com/x/y", "title": title, "points": 999}
+    assert primary_anchor("hn", "story", gh_payload).key == "github:x/y"
+    # Popular but signal-less opinion / news / question posts are NOT promoted.
+    noise_titles = (
+        "The Singularity will occur",
+        "Why we moved off Kubernetes",
+        "Japan develops a method",
+    )
+    for noise in noise_titles:
+        payload = {"url": "https://blog.example.com", "title": noise, "points": 800}
+        assert primary_anchor("hn", "story", payload) is None, noise
+    ask = {"url": "https://ask.example.com", "title": "Ask HN: best local LLM?", "points": 300}
+    assert primary_anchor("hn", "story", ask) is None
+
+
+def test_openrouter_anchor_routes_to_hf_when_weights_are_public() -> None:
+    a = primary_anchor(
+        "openrouter",
+        "or_model_listed",
+        {
+            "model_id": "deepseek/deepseek-v4-pro",
+            "hugging_face_id": "deepseek-ai/DeepSeek-V4-Pro",
+            "name": "DeepSeek: DeepSeek V4 Pro",
+        },
+    )
+    assert a == Anchor("hf", "deepseek-ai/deepseek-v4-pro", "model", "deepseek-ai/DeepSeek-V4-Pro")
+
+
+def test_openrouter_anchor_falls_back_to_web_product_name() -> None:
+    # A proprietary model (no HF weights) lands on the same web anchor an HN launch mints, so
+    # OpenRouter usage and HN attention correlate on ONE entity.
+    a = primary_anchor(
+        "openrouter",
+        "or_rankings",
+        {"model_id": "moonshotai/kimi-k3", "hugging_face_id": None, "name": "MoonshotAI: Kimi K3"},
+    )
+    assert a == Anchor("web", "kimi-k3", "product", "Kimi K3")
+    # Variant suffixes don't fork the entity.
+    free = primary_anchor("openrouter", "or_model_listed", {"name": "Ling-3.0-flash (free)"})
+    assert free.key == "web:ling-3-0-flash"
+    # A delisted rankings slug with no metadata stays unowned context.
+    assert primary_anchor("openrouter", "or_rankings", {"model_id": "gone/x", "name": None}) is None
 
 
 # --- references (R1–R3 evidence) --------------------------------------------

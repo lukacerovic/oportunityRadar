@@ -6,8 +6,8 @@
 
 **This session shipped:** **Stage 8 — Memory & Synthesis (doc 09).** Deterministic **Changes view** (`memory/changes.py` → `changes_daily`, templated diffs, no LLM), automated **momentum calibration** (`memory/calibration.py` → `calibration_snapshots`: breakout-survival + fade-reaccel), and **brief forward-scoring** (`memory/scoring.py`: assembler + **A-7 auto-evaluation** of `system` observables + `record_score`). Migration 0005, `seismo changes`/`seismo calibrate` CLI (+`changes` in `daily.sh`), API (`/changes/{day}`, `/calibration`, `/briefs/{id}/score-packet`, `/briefs/{id}/score`), dashboard `/changes/[day]` + a scoring panel on published briefs. 9 `test_memory.py` + `test_api.py` +1. Also shipped **Stage 7** earlier this session (§20). Full Stage-8 narrative in **§21**.
 
-**IMMEDIATE next task:** Recent ships — HF collector (§25), Reflection-70B GREEN 3/3 (§26), DeepSeek H1a identity proven cheaply + 4 identity fixes (§27), **exposure map curated 8→30 companies (§28)**. Remaining, pick one: (a) **DeepSeek H1b/H2 hindcast** — the HEAVY part (`backfill-stars` over `deepseek-ai`, hundreds of GB; H2 needs `SEISMO_MODEL_HINDCAST` pinned to 7B/anthropic, run 3×; isolated DB per §26.1); (b) **verify the 30-company map figures vs 10-Ks + add CIKs** (§28.3 — engineering is exact, numbers are first-pass); (c) **PyPI collector** (5th evidence type); (d) **run daily for weeks** so momentum wakes up; (e) deploy (Stage 10, LAST). To apply the new map to a DB: `seismo load-map` (§28.4).
-**To resume:** "Read HANDOFF.md (esp. §26)." Stages 0–9 complete (harness + all-but-Wayback/PyPI loaders); Reflection-70B validated; DeepSeek is the remaining hindcast; calibration instruments read n=0 until ~90 days of daily momentum accrue.
+**IMMEDIATE next task (2026-07-25, see §32):** the `pts/dl` unit-label bug is fixed, and council review is shipped with 15 hand-authored real verdicts (not mock placeholders) across 5 entities — see `/brief/3246`, `/brief/3314`. Read **`GRAPH_PLAN.md`** before touching `entity_semantic_edges` or `graphify-out/` again — it's the concrete, ungated plan for the 3 places the graph would actually pay off (related-entities panel, brief-pack crowding signal, council cross-checking), written specifically so this doesn't get re-derived from scratch. Still the top item otherwise: the **card-quality audit check** — 671 qwen-authored cards live with no review flag; the qwen-vs-Fable comparison (§31) shows the exact overclaiming failure mode the new council's `evidence_auditor` role was built to catch (§32) — could pair them. Also open: `llm.py` provenance bug (§30), Reddit OAuth (§30), a small watchlist page for the council's top-N-by-momentum population.
+**To resume:** "Read HANDOFF.md (esp. §32, then §31, then §30)." Standing rules: `briefs/` and `graphify-out/` are **derived and gitignored** — regenerate, never commit; any new table with an `entities` FK (or now `impact_briefs` FK) must be added to `_TABLES` in `tests/conftest.py`, **before** the table it references, or the suite breaks (bit twice this session); and a `GroupedList`/similar client component called from a server page component needs a thin `"use client"` wrapper owning the closures — passing functions directly across that boundary 500s. Note: §29→§30 has an undocumented gap — PyPI collector, entity-graph edges, hype-gap trajectory signal, and discovery triage all shipped in between (see git log / migrations 0007–0008) but were never logged section-by-section.
 
 ---
 
@@ -824,3 +824,258 @@ and refreshed to current facts (model `qwen2.5:3b-instruct`, migrations 0001–0
 full-suite-times-out test note, HF add-on, all 7 dashboard pages + API aliases `/gate/current`
 `/changes/latest`). This **supersedes §20.4** ("not yet in daily.sh") and the §1 caveat in the old
 COMMANDS.md. So the manual daily routine is now literally one command until deployment (Stage 10).
+
+**Note on §30 below:** several sessions shipped between §29 and §30 that were never logged here
+(PyPI collector, typed entity-graph edges `built_by`/`cited`/`depends_on`, hype-gap trajectory
+signal, continuous discovery triage — see `git log` for `fb21462`, `0b8cd37`, `4a7d08c`, `5e0c359`;
+migrations now go up to `0008_discovery_triage.py`). §30 does not attempt to reconstruct those —
+only what this session did directly, with full context, is logged.
+
+## 30. SESSION LOG (2026-07-24) — market-source expansion (OpenRouter) + manual card enrichment, UNCOMMITTED
+
+**Branch/commit state:** still `feature/signaltracker-port`, last commit `de84e1b`. Everything in
+this section is **uncommitted working-tree changes** — new file
+`src/seismo/collectors/openrouter.py` + fixture, plus edits to `DECISIONS.md`,
+`dashboard/app/entity/[id]/page.tsx`, `src/seismo/api/app.py`, `src/seismo/collectors/registry.py`,
+`src/seismo/identity/anchors.py`, `src/seismo/trajectory/metrics.py`, `tests/test_collectors.py`,
+`tests/test_identity_pure.py`, `tests/test_trajectory.py`. Run `git status`/`git diff` first thing
+next session — nothing here has landed.
+
+**Phase 0 — verified 3 new source candidates live** (written up in `DECISIONS.md`):
+- **Substack → GO.** Feeds parse cleanly with stdlib; model-name matching in post text is
+  accurate.
+- **Reddit → NO-GO.** JSON endpoints 403 immediately (bot wall), RSS has no post score and
+  ignores time filters, rate-limited after ~8 requests. Needs OAuth to be viable — would be the
+  first source in this codebase requiring a credential (follow the `github_token`/`hf_token`
+  pattern in settings if picked up later).
+- **OpenRouter → reversed NO-GO to GO** after you asked for a way to correlate model *usage*
+  (paid inference volume) back to existing GitHub/HN entities — e.g. flagging "Kimi K3 is
+  actually being used this week" is high-value and the free rankings endpoint is the only source
+  for it.
+
+**Phase 2 — OpenRouter connector built and live-smoke-tested.** New `OpenRouterCollector`
+(`src/seismo/collectors/openrouter.py`):
+- `discover()` emits `or_model_listed` (new models whose `created` falls in window) and
+  `or_rankings` (weekly token counts per category `tools`/`images` from the unofficial rankings
+  endpoint — sparse by construction, top-10 only, which is the point). `track()` is a no-op.
+- Handles two real quirks found only by hitting the live endpoint: rankings JSON has an
+  `"Others"` aggregate bucket that isn't a model (skipped), and `:free`-suffixed slugs share
+  metadata with their base model id.
+- Rankings fetch is best-effort per category (404/transport error skips that category only, model
+  listing still lands) since the endpoint is unofficial and has churned before.
+
+**The correlation mechanism** (the actual goal) is in `src/seismo/identity/anchors.py`,
+`primary_anchor()`, new `source == "openrouter"` branch: if the model has a `hugging_face_id`,
+anchor to that existing HF entity; otherwise derive a slug from the display name (strip vendor
+prefix, strip trailing parens) and anchor to the same `web:` entity an HN launch would have
+created — `"MoonshotAI: Kimi K3"` → `web:kimi-k3`. This is what makes OpenRouter usage data land
+on the *same* entity row as GitHub/HN evidence instead of an orphan.
+
+New metric `or_tokens_wk` (`src/seismo/trajectory/metrics.py`): `level`, `evidence_type="usage"`,
+`composite=True` — joined `ADOPTION_METRICS`/`COMPOSITE_METRICS` automatically (those sets derive
+from `evidence_type`, no manual editing needed). Also wired into `_evidence_item()` in
+`src/seismo/api/app.py`, registered in `src/seismo/collectors/registry.py` (`GROUPS["all"]`, not
+`"fast"`), and made the top-priority entry in the dashboard's `ATTENTION` metric picker
+(`dashboard/app/entity/[id]/page.tsx`).
+
+Test coverage added for idempotency, `"Others"`/`:free` handling, best-effort category
+degradation, HF-vs-web anchor routing, `or_tokens_wk` snapshot behavior (level, never
+forward-filled). Full suite green except 2 known-flaky tests
+(`test_backfilled_stars_drive_breakout_the_H1_shape`, `test_rolling_and_breadth_metrics`) —
+confirmed by isolated rerun to be deadlock artifacts from a concurrent pytest run colliding with a
+`resolve` DELETE, not real regressions. `ruff check` passes clean.
+
+**Live finding (honest, not massaged):** Kimi K3 was **not** in this week's actual OpenRouter
+top-10, so it currently has zero OpenRouter usage evidence attached — real sparse-coverage
+limitation (top-10 only), not a bug. Models that *were* in today's top-10 (DeepSeek V4, Tencent
+Hy3, etc.) had no prior HN/GitHub history in the DB, so no live "old entity gets new usage
+evidence" before/after example landed today. The anchor mechanism itself is verified via unit
+tests + live payload shape.
+
+**Phase 3 — manual LLM enrichment, 9 cards written directly to DB (not via code, no commit
+needed/possible for this part).** The `claude_cli` provider (subprocess call to the `claude`
+binary) is broken in this environment: `--bare` throws "Not logged in" **regardless of actual
+login state** — isolated by testing flags individually (`--bare` alone reproduces it; `--model`/
+`--output-format` alone are fine; full combo *without* `--bare` works). This is a CLI regression
+(v2.1.218), not a config problem — worth filing upstream. Running without `--bare` was rejected:
+pulled ~27.7k cache-creation tokens (CLAUDE.md/hooks/memory) per call, cost $0.56 for a trivial
+prompt, and risked violating the evidence-pack-only grounding rule in `comprehend.py`'s system
+prompt.
+
+Per explicit instruction, the assistant (this session, not a subprocess or Ollama/qwen) read the
+real evidence packs directly and hand-authored `ComprehensionCard` objects via a scratch script
+(`enrich_cards.py`, not in repo) that calls the real `ComprehensionCard.model_validate()` and
+`_store()` from `comprehend.py`, tagged `model="claude-fable-5:direct"`, `status="ok"`,
+`cost=Decimal(0)` so provenance is honest about authorship. 9 cards landed (verified via SQL):
+entity `20371` (Kimi K3, **version 4**, replacing a mislabeled version 3 — see bug below) and
+momentum-gated candidates `18015, 18074, 18292, 18370, 18988, 19228, 19418, 19534`. 6 of the 9
+have a real `category_disputed` flag against the rule-based classifier — worth reviewing by hand,
+not a bug.
+
+**Bug found, NOT fixed (flagged only, out of scope):** in `llm.py`/`comprehend.py`, when
+`claude_cli` fails closed it silently falls back to a near-empty deterministic response but still
+writes `model=f"claude_cli:{settings.claude_cli_model}"` and `status="ok"` — indistinguishable
+from a real successful generation. Found because the pre-existing v3 Kimi K3 card was tagged as a
+real Fable response but was actually just fallback boilerplate.
+
+**Update (same day, cont.):** items 1–2 done.
+1. ✅ `uv run seismo snapshot` re-run — `or_tokens_wk` now in `entity_metrics_daily`, 15 rows
+   across both categories, all 15 correctly anchored (e.g. `22909 deepseek-ai/DeepSeek-V4-Flash`,
+   `22917 Claude Opus 4.8` as a `web` entity, etc. — spot-checked via SQL join to `entities`).
+2. ✅ Phase 2 committed as `898f280` — `feat(collectors): OpenRouter usage evidence, anchored to
+   existing entities`. `HANDOFF.md` deliberately left out of that commit (per convention, doc
+   updates aren't bundled with feature commits here).
+
+**Still pending:**
+3. Decide whether to fix the `llm.py` provenance bug (real generation vs. silent fallback
+   indistinguishable in `model`/`status` columns) — optional, not requested yet.
+4. Reddit needs an OAuth key to be viable — new kind of dependency, deferred.
+5. Manual-authorship enrichment doesn't scale to the ~9,865-entity backlog by hand — would need
+   either automation or accepting narrow depth if continued.
+
+**To resume:** `git log --oneline -3` to confirm `898f280` is the tip, then decide on item 3
+(provenance bug fix) or item 4/5 (Reddit OAuth vs. scaling enrichment) — whichever you want to
+tackle next.
+
+## 31. SESSION LOG (2026-07-25) — knowledge graph over the corpus + `entity_semantic_edges` (0009)
+
+Built a knowledge graph across everything scraped so far, then moved the part worth keeping into
+Postgres.
+
+**Ran `seismo derive-edges` for the first time** — it had never been executed, so
+`entity_graph_edges` was empty. Now 199 `cited` edges (repo → paper, 197 new paper entities).
+`built_by`/`depends_on` are still 0 (no contributors/PyPI-metadata events collected yet).
+
+**Corpus + graph.** `scripts/export_briefs.py` (new) renders one markdown brief per
+signal-bearing entity — 1,938 of them: entities with ≥2 evidence sources, a comprehension card, a
+graph edge, OpenRouter usage, or non-dormant momentum. The other ~15k are dormant single-source
+noise. Fed that to graphify: **2,654 nodes / 1,382 edges / 15 named communities**, outputs in
+`graphify-out/` (`graph.html` interactive, `graph.json` GraphRAG-ready, `GRAPH_REPORT.md`).
+31 of 39 extraction chunks were read by Fable subagents; the other 8 hit session limits twice, so
+those were extracted mechanically (explicit citations/same-owner only, no inference) — that's why
+some briefs carry no inferred edges.
+
+**Both directories are now gitignored and `briefs/` is deleted.** They are derived data:
+`briefs/` re-renders from Postgres in ~40s, and the graph rebuilds from it. Do not commit them.
+
+**`entity_semantic_edges` (migration 0009)** holds the irreplaceable part — the **283
+INFERRED/AMBIGUOUS edges** the model *reasoned* (`semantically_similar_to`,
+`conceptually_related_to`), which cost ~30 subagent runs and will not reproduce identically.
+212 are fully entity-resolved; the remaining 71 anchor on concept nodes ("Claude Code", "MCP") and
+keep NULL entity ids with intact labels rather than being dropped. Load with
+`uv run python scripts/import_semantic_edges.py` (idempotent; needs `briefs/` present to resolve
+node ids → entity ids, so regenerate briefs first).
+
+**Deliberately NOT in `entity_graph_edges`.** That table is the deterministic spine — every row
+justified by raw_event ids (invariant 4, "collectors never reason"). These are model judgements,
+so they carry `model` + `confidence_score` and a consumer opts into inference explicitly. Keeping
+them separate is the whole point; don't "simplify" by merging the two tables.
+
+Payoff query — cross-category links no rule could ever derive:
+```sql
+select se.confidence_score, a.canonical_name, a.category, b.canonical_name, b.category
+from entity_semantic_edges se
+join entities a on a.id = se.src_entity_id
+join entities b on b.id = se.dst_entity_id
+where a.category <> b.category and se.confidence_score >= 0.75;
+-- e.g. nvidia/nemoclaw [agent-framework] <-> tastyeffectco/sandboxd [agent-runtime]
+```
+
+**Gotcha fixed:** the new FK to `entities` broke `tests/conftest.py` — its cleanup list deletes
+`entities` and didn't know about the new table, so 10 tests hit `ForeignKeyViolation`. Added
+`entity_semantic_edges` to `_TABLES` before `entities`. **Any future table with an `entities` FK
+must be added there too.**
+
+**Model-quality finding (matters more than it sounds).** Kimi K3 (entity 20371) is the one entity
+with both a qwen card and a Fable card over the *identical* evidence refs. qwen
+(`qwen2.5:3b-instruct`) rated it `confidence: high`, `maturity_stage: institutional_adoption` (top
+rung), `open_questions: []` — and restated the vendor's self-reported benchmark claim as fact, for
+a product with one HN post and zero usage evidence. Fable, same three documents, rated it
+`confidence: low`, one rung lower, flagged the claim as single-source and uncorroborated, listed 5
+specific gaps, and caught that the evidence pack interleaves vendor copy with unrelated HN chatter.
+**671 qwen-authored cards are live in the dashboard with no review flag.** The failure signature is
+mechanically checkable without an LLM: `confidence: high` + empty `open_questions` +
+`evidence_breadth` of 1, or a `maturity_stage` that disagrees with the rule-based ladder without
+explanation. Writing that audit check is the highest-value open item.
+
+## 32. SESSION LOG (2026-07-25, cont.) — ran the branch live, fixed dashboard overwhelm, shipped council review
+
+Started both services and drove the actual pages (not just tests) to sanity-check everything
+Phase 2 built: `uv run seismo serve` + `cd dashboard && npm run dev`, hit `/entity/22909`,
+`/changes/latest`, `/gate/current` for real. Confirmed the OpenRouter chain works end-to-end
+(evidence renders correctly) but caught two real gaps: `EvidenceList.tsx` hardcodes `pts/dl` as the
+unit label, so 38.5M tokens displays as "38.5M pts/dl" (not fixed yet — cosmetic, flagged); and the
+`or_tokens_wk` chart doesn't activate yet since `pickAttention` needs ≥2 points and there's only
+one week of data. Also corrected an in-conversation mistake: I nearly reported "OpenRouter usage
+landed on pre-existing entities" — wrong, `entities.created_at` is backdated to event date, not
+creation date, so that comparison measured nothing. Checked properly via `entity_links`/`raw_events`
+join: all 15 OpenRouter-anchored entities have `openrouter` as their *only* source. No cross-source
+example yet — same limitation as before, now confirmed against the running app, not just code.
+
+**Dashboard overwhelm fix (`/changes/[day]`, nav-labeled "Activity", and `/gate/[week]`).** Both
+pages rendered flat lists of 300–1000+ rows with no grouping or search — 372 maturity promotions,
+860 suppressed gate candidates, all in one scroll. Fixed by clustering on the **existing**
+`category` taxonomy (no new taxonomy invented) plus a client-side text filter:
+- New shared component `dashboard/components/GroupedList.tsx` — collapsible per-category sections
+  (default-open only when ≤8 items or a search is active), sorted by group size descending.
+- **RSC gotcha, real 500 the first time**: `GroupedList` needs closures (`getCategory`/
+  `renderItem`) and functions can't cross the server→client boundary from an async page component
+  — Next.js threw `Functions cannot be passed directly to Client Components`. Fixed by extracting
+  `ChangeRow`/`GateRow` into standalone components and building thin `"use client"` wrappers
+  (`ChangesGroupedList.tsx`, `GateSuppressedList.tsx`) that own the closures internally and take
+  only serializable props from the server page. **Any future GroupedList usage from a server
+  component needs this same wrapper pattern, not a direct call.**
+- Backend: `/changes/{day}` (`app.py`) now joins `entities` to attach `category` per `ChangeItem`
+  (additive field, non-breaking). `/gate/{week}` already had `category` per item — frontend-only
+  change there.
+- Verified live: 372 promotions → ~20 category buckets (Agent Framework 121 largest); 860
+  suppressed → grouped + filterable. `tsc --noEmit` clean, `test_api.py -k changes` passes.
+
+**Council review — the layer the user asked for on `/brief/[id]`.** The existing ImpactBrief
+checkpoint already forces a `counter_mechanism` field (self-critique), but it's the same model
+checking its own work. Built a genuinely independent second layer:
+- **Population: top N by momentum** (`momentum_states.inputs->>'P'`, the velocity percentile),
+  **independent of the weekly significance gate** — user's explicit choice over gate-score-based
+  or already-briefed-only options, so a top-momentum entity may not have cleared the gate's own
+  ≤5/week budget. If it has no live brief yet, one is forced first (same path as `brief
+  --entity-id`).
+- **Three separate LLM calls per brief**, not one: `skeptic` (tries to refute the thesis outright),
+  `evidence_auditor` (checks every claim traces to evidence_refs — deliberately targets the exact
+  overclaiming failure mode found in the qwen-vs-Fable comparison, §31), `mechanism_reviewer`
+  (judges whether counter_mechanism/observables are genuinely falsifiable or boilerplate).
+- **Aggregation is a deterministic majority vote** (`aggregate_stance()` in
+  `checkpoints/council.py`) — never a 4th LLM call, so cost never compounds and a 3-way split is
+  preserved as `"split"` rather than smoothed into a fake consensus.
+- New files: `checkpoints/contracts.py` (+`CouncilVerdict`/`council_tool_schema`, `role` excluded
+  from what the LLM fills in — injected programmatically after generation so the model can't
+  mislabel itself), `checkpoints/llm.py` (+`complete_council`, mirrors `complete_brief`),
+  `checkpoints/council.py` (new, `run_council`/`aggregate_stance`), migration `0010_council_
+  verdicts.py` (+ORM `CouncilVerdict` in `models.py`), CLI `seismo council --top N` / `--entity-id`
+  (deliberately **not** wired into `daily.sh` — 3 LLM calls/brief is the most expensive checkpoint
+  in the pipeline).
+- **Real dashboard surface, not another silent table** (the semantic-edges mistake from §31 —
+  "table only, no surface, not a feature yet" — was explicitly not repeated here). `/briefs/
+  {entity_id}` now returns `council: CouncilVerdictItem[]` + `council_stance` (computed via the
+  same `aggregate_stance()`, imported from `checkpoints/` into `api/app.py` — confirmed this
+  doesn't violate CI invariant 3, since `scripts/check_llm_import.sh` only greps for direct
+  `import anthropic|ollama`, and both are lazy-imported inside functions, not at module level).
+  New `dashboard/components/CouncilReview.tsx` renders on `/brief/[id]`: aggregate stance badge,
+  one card per role with its stance + reasoning, and an honest empty state ("not yet reviewed...")
+  when a brief has no council data.
+- **Verified live end-to-end**, not just unit-tested: `uv run seismo council --entity-id 3246` →
+  drafted a brief, ran 3 verdicts, $0 cost (mock). Confirmed idempotent (`--top 5` re-run: entity
+  3246 correctly `skipped`, still exactly 3 rows). Confirmed `--top 1` picks by momentum P alone,
+  ignoring an entity with low P even when seeded first. Then hit the running dashboard directly:
+  `/brief/3246` renders the "Watch" aggregate badge and all 3 named roles with real reasoning text;
+  `/brief/5564` (no council data) renders the correct empty state, not a broken section.
+- 9 new tests in `tests/test_council.py` (pure `aggregate_stance` parametrized cases + 3 DB-backed
+  orchestrator tests on `clean_db`), all passing. `tests/conftest.py` needed `council_verdicts`
+  added to `_TABLES` — **before** `impact_briefs`, not after (it FKs to it) — this is the second
+  time a new `entities`/`impact_briefs`-referencing table broke cleanup ordering; check this first
+  for any future table with either FK.
+
+**Pending for next session:** fix the `pts/dl` evidence-unit label bug (`EvidenceList.tsx:25`,
+`compactNum(it.score)} pts/dl` should read the source's actual unit, not hardcode downloads);
+everything else from §31 (card-quality audit check is still the top item); consider whether
+`council`'s momentum-based top-N should also expose a small "watchlist" dashboard page listing
+who's currently in it, since right now the only way to see the population is the CLI query itself.

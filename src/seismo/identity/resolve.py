@@ -212,9 +212,8 @@ def _absorb_payload(ent: _Ent, event: RawEvent) -> None:
     # An enrichment event carries deep text under `text` — a repo README (§16) or a fetched launch
     # page (Wave-3). Fold it in so build_evidence_pack's Description block (attrs['text'], truncated
     # to 4k) has real content instead of a one-line description / headline.
-    if event.event_type in ("repo_readme", "launch_page", "hn_discussion", "model_readme") and p.get(
-        "text"
-    ):
+    enriched = event.event_type in ("repo_readme", "launch_page", "hn_discussion", "model_readme")
+    if enriched and p.get("text"):
         chunks.append(str(p["text"]))
     if event.source == "seed" and p.get("category"):
         ent.attrs["seed_category"] = p["category"]

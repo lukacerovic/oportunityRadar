@@ -25,12 +25,17 @@ class Settings(BaseSettings):
     product_name: str = "Seismograph"
 
     # --- LLM provider (doc 13 A-13) ---
-    llm_provider: str = "mock"  # mock | ollama | anthropic
+    llm_provider: str = "mock"  # mock | ollama | anthropic | claude_cli
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b-instruct"
     model_live: str = ""  # Anthropic snapshot id, used only when llm_provider="anthropic"
     model_hindcast: str = ""  # pinned snapshot id for the H2 assertion (doc 13 A-8)
     anthropic_api_key: str = ""
+
+    # --- claude_cli provider (shells out to the installed `claude` CLI in print mode) ---
+    claude_cli_model: str = "opus"  # --model alias (e.g. "opus", "fable"); free-form string
+    claude_cli_bin: str = "claude"  # binary/path invoked for the CLI
+    claude_cli_timeout_s: int = 120  # per-call subprocess timeout in seconds
 
     # --- API + dashboard (doc 10 DR-10.2) ---
     api_token: str = ""  # static bearer for curation (non-GET) endpoints; empty = open (dev only)
@@ -72,6 +77,16 @@ class Settings(BaseSettings):
     momentum_fade_hold_days: int = 14  # P<fade this many consecutive days -> fading
     momentum_active_days: int = 14  # any event within this window => active
     momentum_fade_inactive_days: int = 30  # inactive this long => fading
+
+    # --- discovery triage (Feature 6): deterministic fallback bar when the LLM is unavailable ---
+    triage_github_star_threshold: int = 500  # min latest gh_stars to threshold-track a github repo
+    triage_hf_downloads_threshold: int = 50000  # min latest hf_downloads_30d to threshold-track
+    triage_pypi_downloads_threshold: int = 50000  # min latest pypi_downloads_7d to threshold-track
+
+    # --- hype-gap signal (idea-spec principle 3): loud attention, thin adoption, narrow breadth ---
+    hype_attention_p: float = 0.95  # attention-group pctl must be at least this high
+    hype_gap_min: float = 0.5  # attention_p - adoption_p must be at least this
+    hype_max_breadth: int = 2  # only flag hype when corroboration breadth is this narrow or less
 
 
 @lru_cache(maxsize=1)

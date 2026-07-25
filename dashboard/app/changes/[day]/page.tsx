@@ -4,9 +4,15 @@ import type { CalibrationResponse, ChangeItem, ChangesResponse } from "@/lib/typ
 import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
 import { InfoButton } from "@/components/InfoModal";
+import { ChangesGroupedList } from "@/components/ChangesGroupedList";
+import { ChangeRow } from "@/components/ChangeRow";
 import { HELP } from "@/lib/help";
 
 export const dynamic = "force-dynamic";
+
+// Below this many rows, a flat list reads fine — grouping/filtering only earns its keep once a
+// kind's row count starts to overwhelm (some days: 300+ maturity promotions in one section).
+const GROUP_THRESHOLD = 15;
 
 // Each Changes group: label + accent (doc 09 §1). Deterministic, no LLM — boring on purpose.
 const GROUP: Record<string, { label: string; color: string }> = {
@@ -100,24 +106,21 @@ export default async function ChangesPage({ params }: { params: { day: string } 
                 <h2 className="text-sm font-semibold">{g.label}</h2>
                 <span className="tabular text-xs text-faint">{items.length}</span>
               </div>
-              <div className="space-y-1.5">
-                {items.map((it, i) => (
-                  <ChangeRow key={i} item={it} />
-                ))}
-              </div>
+              {items.length > GROUP_THRESHOLD ? (
+                <ChangesGroupedList items={items} itemLabel={g.label.toLowerCase()} />
+              ) : (
+                <div className="space-y-1.5">
+                  {items.map((it, i) => (
+                    <ChangeRow key={i} item={it} />
+                  ))}
+                </div>
+              )}
             </section>
           );
         })}
       </main>
     </>
   );
-}
-
-function ChangeRow({ item }: { item: ChangeItem }) {
-  const body = (
-    <div className="panel px-4 py-2.5 text-sm transition hover:bg-card-hover">{item.text}</div>
-  );
-  return item.entity_id ? <Link href={`/entity/${item.entity_id}`}>{body}</Link> : body;
 }
 
 function CalibrationStrip({ cal }: { cal: CalibrationResponse }) {

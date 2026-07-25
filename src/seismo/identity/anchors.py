@@ -196,6 +196,23 @@ def primary_anchor(source: str, event_type: str, payload: dict[str, Any]) -> Anc
             etype = _ENTITY_TYPE.get(reg, "product")
             return Anchor(reg, str(nid), etype, payload.get("name") or str(nid))
         return None
+    if source == "openrouter":
+        # OpenRouter evidence belongs to the *model's* entity, not a registry of its own: the
+        # payload's hugging_face_id routes to the HF entity; a proprietary model (no HF id) routes
+        # via its display name to the same ``web`` product anchor an HN launch mints — "MoonshotAI:
+        # Kimi K3" lands on ``web:kimi-k3``. A delisted rankings slug with neither stays unowned.
+        hf_id = payload.get("hugging_face_id")
+        if hf_id:
+            return Anchor("hf", str(hf_id).lower(), "model", str(hf_id))
+        name = payload.get("name")
+        if name:
+            # Strip the "Provider: " prefix and the "(free)"-style variant suffix.
+            base = str(name).split(": ", 1)[-1]
+            base = re.sub(r"\s*\([^)]*\)\s*$", "", base).strip()
+            slug = _slugify(base)
+            if slug:
+                return Anchor("web", slug, "product", base)
+        return None
     if source == "hn":
         # An HN story attaches to the entity behind its linked URL, if any (doc 04 §2).
         url_anchor = anchor_from_url(payload.get("url") or "")

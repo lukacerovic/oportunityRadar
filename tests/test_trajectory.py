@@ -15,10 +15,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from seismo.trajectory.cohorts import age_bucket
-from seismo.trajectory.metrics import run_snapshot
+from seismo.trajectory.metrics import ADOPTION_METRICS, COMPOSITE_METRICS, run_snapshot
 from seismo.trajectory.score import run_score
 from seismo.trajectory.states import raw_tier, replay
-from seismo.trajectory.velocity import DaySignal, _percent_ranks
+from seismo.trajectory.velocity import DaySignal, _hype_signal, _percent_ranks
 
 _UID = itertools.count(1)
 
@@ -129,6 +129,49 @@ def test_percent_ranks_sql_semantics() -> None:
     ranks = _percent_ranks([D(0), D(0), D(0), D(10)])
     assert ranks == [0.0, 0.0, 0.0, 1.0]
     assert _percent_ranks([D(5)]) == [0.0]
+
+
+def test_hype_signal_gap_and_missing_group_defaults() -> None:
+    # both groups present: group value is the mean of its metrics' percentiles; gap = a - u.
+    a_p, u_p, gap = _hype_signal([0.9, 1.0], [0.2, 0.4])
+    assert (a_p, u_p) == (0.95, 0.30000000000000004)
+    assert gap == a_p - u_p
+    # missing adoption group -> adoption_p defaults to 0.0 (not None), gap = attention_p.
+    a_p, u_p, gap = _hype_signal([0.96], [])
+    assert (u_p, gap) == (0.0, 0.96)
+    # missing attention group -> attention_p 0.0, a negative gap (loud usage, no talk).
+    a_p, u_p, gap = _hype_signal([], [0.8])
+    assert (a_p, gap) == (0.0, -0.8)
+    # both groups empty -> all zero, never raises.
+    assert _hype_signal([], []) == (0.0, 0.0, 0.0)
+
+
+def test_replay_inputs_carry_hype_only_when_all_thresholds_met() -> None:
+    start = date(2024, 1, 1)
+    days = [start + timedelta(days=i) for i in range(3)]
+    # attention high + gap wide + breadth narrow -> hype True.
+    hot = DaySignal(
+        p=0.7, count_60=1, cohort_n=8, attention_p=0.97, adoption_p=0.2, hype_gap=0.77, breadth=1
+    )
+    out = replay(start, days[-1], {d: hot for d in days}, days, [])
+    inp = out[days[-1]].inputs
+    assert {"attention_p", "adoption_p", "hype_gap", "hype"} <= set(inp)
+    assert inp["attention_p"] == 0.97 and inp["adoption_p"] == 0.2 and inp["hype_gap"] == 0.77
+    assert inp["hype"] is True
+
+    # same loud attention + wide gap but breadth too broad -> hype False (breadth gate fails).
+    broad = DaySignal(
+        p=0.7, count_60=1, cohort_n=8, attention_p=0.97, adoption_p=0.2, hype_gap=0.77, breadth=3
+    )
+    out = replay(start, days[-1], {d: broad for d in days}, days, [])
+    assert out[days[-1]].inputs["hype"] is False
+
+    # gap too small (adoption keeping pace) -> hype False even with loud attention + narrow breadth.
+    caught_up = DaySignal(
+        p=0.7, count_60=1, cohort_n=8, attention_p=0.97, adoption_p=0.7, hype_gap=0.27, breadth=1
+    )
+    out = replay(start, days[-1], {d: caught_up for d in days}, days, [])
+    assert out[days[-1]].inputs["hype"] is False
 
 
 def test_raw_tier_conditions() -> None:
@@ -258,6 +301,34 @@ def test_level_metric_is_never_forward_filled(clean_db: Session) -> None:
         {"e": eid},
     ).all()
     assert len(rows) == 1, "a level must not be carried forward across days (doc 03 §2.4)"
+
+
+def test_openrouter_rankings_tokens_snapshot_as_usage_level(clean_db: Session) -> None:
+    """An or_rankings event becomes an or_tokens_wk level row on its ranking day, and the metric
+    joins the adoption/composite groups purely via its evidence_type (DECISIONS.md 2026-07-24)."""
+    assert "or_tokens_wk" in ADOPTION_METRICS and "or_tokens_wk" in COMPOSITE_METRICS
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    eid = _entity(session, "kimi-k3", etype="product", created=t0)
+    _event(
+        session,
+        eid,
+        source="openrouter",
+        event_type="or_rankings",
+        occurred=t0,
+        payload={"model_id": "moonshotai/kimi-k3", "category": "tools", "tokens": 20576221},
+    )
+    session.flush()
+    run_snapshot(session, t0 + timedelta(days=3))
+    rows = session.execute(
+        text(
+            "SELECT day, value FROM entity_metrics_daily "
+            "WHERE entity_id = :e AND metric = 'or_tokens_wk'"
+        ),
+        {"e": eid},
+    ).all()
+    assert len(rows) == 1, "a weekly leaderboard point is a level — never forward-filled"
+    assert rows[0][0] == t0.date() and int(rows[0][1]) == 20576221
 
 
 def test_backfilled_repo_stars_build_cumulative_gh_stars(clean_db: Session) -> None:

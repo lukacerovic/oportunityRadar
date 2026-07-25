@@ -1,0 +1,604 @@
+{
+ "data": [
+  {
+   "id": "poolside/laguna-s-2.1",
+   "canonical_slug": "poolside/laguna-s-2.1-20260720",
+   "hugging_face_id": "poolside/Laguna-S-2.1",
+   "name": "Poolside: Laguna S 2.1",
+   "created": 1784652683,
+   "description": "Laguna S 2.1 is the latest coding agent model from [Poolside](<https://poolside.ai/>). Laguna S 2.1 is a 118B total parameter model with 8B active parameters, scoring 70.2% on Terminal-Bench 2.1 and...",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.0000001",
+    "completion": "0.0000002",
+    "input_cache_read": "0.00000001"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 131072,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "stop",
+    "temperature",
+    "tool_choice",
+    "tools"
+   ],
+   "default_parameters": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/poolside/laguna-s-2.1-20260720/endpoints"
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": true
+   }
+  },
+  {
+   "id": "inclusionai/ling-3.0-flash:free",
+   "canonical_slug": "inclusionai/ling-3.0-flash-20260723",
+   "hugging_face_id": null,
+   "name": "Ling-3.0-flash (free)",
+   "created": 1784818580,
+   "description": "*Ling-3.0-flash* is a *124B-parameter Mixture-of-Experts (MoE) model*, with approximately *5.1B parameters activated per token*. The model is designed with *token efficiency and production-scale agentic inference* as key priorities, enabling developers...",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32768,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logprobs",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "seed",
+    "stop",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/inclusionai/ling-3.0-flash-20260723/endpoints"
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": false
+   }
+  },
+  {
+   "id": "moonshotai/kimi-k3",
+   "canonical_slug": "moonshotai/kimi-k3-20260715",
+   "hugging_face_id": null,
+   "name": "MoonshotAI: Kimi K3",
+   "created": 1784215858,
+   "description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000003",
+    "completion": "0.000015",
+    "input_cache_read": "0.0000003"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": null,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "stop",
+    "structured_outputs",
+    "tool_choice",
+    "tools"
+   ],
+   "default_parameters": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/moonshotai/kimi-k3-20260715/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [
+     {
+      "arena": "agents",
+      "category": "godotgamedev",
+      "elo": 1199,
+      "win_rate": 48.5,
+      "rank": 11
+     },
+     {
+      "arena": "agents",
+      "category": "python-pptxslides",
+      "elo": 1282,
+      "win_rate": 57.7,
+      "rank": 4
+     },
+     {
+      "arena": "agents",
+      "category": "webapps",
+      "elo": 1312,
+      "win_rate": 60.1,
+      "rank": 2
+     },
+     {
+      "arena": "models",
+      "category": "3d",
+      "elo": 1447,
+      "win_rate": 71.2,
+      "rank": 1
+     },
+     {
+      "arena": "models",
+      "category": "codecategories",
+      "elo": 1406,
+      "win_rate": 67.4,
+      "rank": 1
+     },
+     {
+      "arena": "models",
+      "category": "dataviz",
+      "elo": 1360,
+      "win_rate": 63.5,
+      "rank": 2
+     },
+     {
+      "arena": "models",
+      "category": "uicomponent",
+      "elo": 1439,
+      "win_rate": 71.8,
+      "rank": 1
+     },
+     {
+      "arena": "models",
+      "category": "website",
+      "elo": 1373,
+      "win_rate": 63.6,
+      "rank": 1
+     }
+    ],
+    "artificial_analysis": {
+     "intelligence_index": 57.1,
+     "coding_index": 76.2,
+     "agentic_index": 50.1
+    }
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": true,
+    "supported_efforts": [
+     "max",
+     "high",
+     "low"
+    ],
+    "default_effort": "max"
+   }
+  },
+  {
+   "id": "deepseek/deepseek-v4-pro",
+   "canonical_slug": "deepseek/deepseek-v4-pro-20260423",
+   "hugging_face_id": "deepseek-ai/DeepSeek-V4-Pro",
+   "name": "DeepSeek: DeepSeek V4 Pro",
+   "created": 1777000679,
+   "description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000000435",
+    "completion": "0.00000087",
+    "input_cache_read": "0.000000003625"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 384000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {
+    "temperature": 1,
+    "top_p": 1,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/deepseek/deepseek-v4-pro-20260423/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [
+     {
+      "arena": "agents",
+      "category": "fullstack",
+      "elo": 948,
+      "win_rate": 22.1,
+      "rank": 33
+     },
+     {
+      "arena": "agents",
+      "category": "godotgamedev",
+      "elo": 1059,
+      "win_rate": 34,
+      "rank": 27
+     },
+     {
+      "arena": "agents",
+      "category": "webapps",
+      "elo": 1005,
+      "win_rate": 26.6,
+      "rank": 33
+     },
+     {
+      "arena": "models",
+      "category": "3d",
+      "elo": 1311,
+      "win_rate": 58.9,
+      "rank": 12
+     },
+     {
+      "arena": "models",
+      "category": "asciiart",
+      "elo": 1193,
+      "win_rate": 46.6,
+      "rank": 24
+     },
+     {
+      "arena": "models",
+      "category": "codecategories",
+      "elo": 1271,
+      "win_rate": 54.1,
+      "rank": 25
+     },
+     {
+      "arena": "models",
+      "category": "dataviz",
+      "elo": 1211,
+      "win_rate": 47.5,
+      "rank": 43
+     },
+     {
+      "arena": "models",
+      "category": "gamedev",
+      "elo": 1288,
+      "win_rate": 55.8,
+      "rank": 21
+     },
+     {
+      "arena": "models",
+      "category": "svg",
+      "elo": 1185,
+      "win_rate": 46.6,
+      "rank": 36
+     },
+     {
+      "arena": "models",
+      "category": "uicomponent",
+      "elo": 1261,
+      "win_rate": 51.9,
+      "rank": 30
+     },
+     {
+      "arena": "models",
+      "category": "website",
+      "elo": 1261,
+      "win_rate": 52.8,
+      "rank": 28
+     }
+    ],
+    "artificial_analysis": {
+     "intelligence_index": 44.3,
+     "coding_index": 59.4,
+     "agentic_index": 36.4
+    }
+   },
+   "reasoning": {
+    "mandatory": false,
+    "supported_efforts": [
+     "xhigh",
+     "high"
+    ],
+    "default_effort": "high"
+   }
+  },
+  {
+   "id": "anthropic/claude-sonnet-5",
+   "canonical_slug": "anthropic/claude-sonnet-5-20260630",
+   "hugging_face_id": null,
+   "name": "Anthropic: Claude Sonnet 5",
+   "created": 1782843083,
+   "description": "Sonnet 5 is Anthropic's most capable Sonnet-class model, with frontier performance across coding, agents, and professional work. It supports adaptive thinking with selectable reasoning effort levels (low, medium, high, max,...",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text+image+file->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "file"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Claude",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000002",
+    "completion": "0.00001",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000002",
+    "input_cache_write": "0.0000025",
+    "input_cache_write_1h": "0.000004"
+   },
+   "top_provider": {
+    "context_length": 1000000,
+    "max_completion_tokens": 128000,
+    "is_moderated": true
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "include_reasoning",
+    "max_completion_tokens",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "stop",
+    "structured_outputs",
+    "tool_choice",
+    "tools",
+    "verbosity"
+   ],
+   "default_parameters": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/anthropic/claude-sonnet-5-20260630/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [
+     {
+      "arena": "agents",
+      "category": "agenticgamedev",
+      "elo": 1240,
+      "win_rate": 54.9,
+      "rank": 4
+     },
+     {
+      "arena": "agents",
+      "category": "androidnative",
+      "elo": 1256,
+      "win_rate": 55.8,
+      "rank": 8
+     },
+     {
+      "arena": "agents",
+      "category": "fullstack",
+      "elo": 1289,
+      "win_rate": 59.5,
+      "rank": 5
+     },
+     {
+      "arena": "agents",
+      "category": "godotgamedev",
+      "elo": 1239,
+      "win_rate": 53.5,
+      "rank": 5
+     },
+     {
+      "arena": "agents",
+      "category": "htmlslides",
+      "elo": 1233,
+      "win_rate": 53.9,
+      "rank": 4
+     },
+     {
+      "arena": "agents",
+      "category": "python-pptxslides",
+      "elo": 1252,
+      "win_rate": 55,
+      "rank": 6
+     },
+     {
+      "arena": "agents",
+      "category": "webapps",
+      "elo": 1303,
+      "win_rate": 57.1,
+      "rank": 4
+     },
+     {
+      "arena": "models",
+      "category": "3d",
+      "elo": 1321,
+      "win_rate": 57,
+      "rank": 9
+     },
+     {
+      "arena": "models",
+      "category": "asciiart",
+      "elo": 1230,
+      "win_rate": 51.2,
+      "rank": 14
+     },
+     {
+      "arena": "models",
+      "category": "codecategories",
+      "elo": 1312,
+      "win_rate": 56.8,
+      "rank": 8
+     },
+     {
+      "arena": "models",
+      "category": "dataviz",
+      "elo": 1281,
+      "win_rate": 54.4,
+      "rank": 15
+     },
+     {
+      "arena": "models",
+      "category": "gamedev",
+      "elo": 1345,
+      "win_rate": 59.9,
+      "rank": 3
+     },
+     {
+      "arena": "models",
+      "category": "svg",
+      "elo": 1240,
+      "win_rate": 53.9,
+      "rank": 14
+     },
+     {
+      "arena": "models",
+      "category": "uicomponent",
+      "elo": 1317,
+      "win_rate": 56.5,
+      "rank": 9
+     },
+     {
+      "arena": "models",
+      "category": "website",
+      "elo": 1314,
+      "win_rate": 57.6,
+      "rank": 8
+     }
+    ],
+    "artificial_analysis": {
+     "intelligence_index": 53.4,
+     "coding_index": 71.5,
+     "agentic_index": 46.7
+    }
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": false,
+    "supported_efforts": [
+     "max",
+     "xhigh",
+     "high",
+     "medium",
+     "low"
+    ],
+    "default_effort": "high"
+   }
+  }
+ ]
+}

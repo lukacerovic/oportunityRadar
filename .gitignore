@@ -21,3 +21,9 @@ dashboard/out/
 *.dump.zst
 /var/backups/
 logs/
+
+# Derived corpora — regenerate, never commit.
+# briefs/ renders from Postgres via scripts/export_briefs.py (~40s for the full slice).
+# graphify-out/ is the graph build; its reasoned edges live in entity_semantic_edges (0009).
+briefs/
+graphify-out/

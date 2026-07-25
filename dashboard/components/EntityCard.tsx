@@ -17,8 +17,19 @@ export function EntityCard({ e }: { e: RadarEntity }) {
       />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold text-text group-hover:text-white">
-            {e.name}
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[15px] font-semibold text-text group-hover:text-white">
+              {e.name}
+            </span>
+            {e.gated && (
+              <span
+                title="Has passed the weekly significance gate — queued for or already given a brief."
+                className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+                style={{ color: "#A78BFA", background: "#A78BFA1F" }}
+              >
+                📋
+              </span>
+            )}
           </div>
           <div className="mt-0.5 truncate text-xs text-muted">
             {titleize(e.category)} · {e.entity_type}

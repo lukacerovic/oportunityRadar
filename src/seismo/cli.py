@@ -57,7 +57,9 @@ def collect(
 
 @app.command()
 def track(
-    source: str = typer.Option("github", help="Registry to deep-poll ('github')."),
+    source: str = typer.Option(
+        "github", help="Registry to deep-poll ('github', 'hf', 'pypi')."
+    ),
     limit: int = typer.Option(None, help="Cap the number of targets (testing / rate budget)."),
 ) -> None:
     """Layer 1 tracking — daily ``*_snapshot`` for known entities (doc 03 DR-03.3).
@@ -122,6 +124,34 @@ def enrich_readmes(
         )
 
 
+@app.command(name="enrich-contributors")
+def enrich_contributors(
+    limit: int = typer.Option(None, help="Cap the number of repos to enrich (rate budget)."),
+) -> None:
+    """Enrichment (Feature 1) — fetch each repo's top contributors as a ``repo_contributors``
+    event, the record the ``derive-edges`` step turns into ``built_by`` (person → repo) graph
+    edges. Targets repos with no contributors event yet (self-completing). Run ``resolve`` then
+    ``derive-edges`` after to mint the edges."""
+    from seismo.collectors.base import Window
+    from seismo.collectors.github import GitHubCollector
+    from seismo.collectors.runner import persist_drafts
+    from seismo.collectors.targets import select_unenriched_targets
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-contributors"):
+        with session_scope() as session:
+            targets = select_unenriched_targets(
+                session, "github", "repo_contributors", limit=limit
+            )
+        drafts = GitHubCollector().contributors(targets, Window.last(1.0))
+        with session_scope() as session:
+            new = persist_drafts(session, drafts)
+        typer.echo(
+            f"[enrich-contributors] {len(targets)} repos → {len(drafts)} contributor sets, "
+            f"{new} new events (run `seismo resolve` then `seismo derive-edges`)"
+        )
+
+
 @app.command(name="enrich-launches")
 def enrich_launches(
     limit: int = typer.Option(None, help="Cap the number of launches to enrich (rate budget)."),
@@ -167,6 +197,31 @@ def enrich_hf(
             new = persist_drafts(session, drafts)
         typer.echo(
             f"[enrich-hf] {len(targets)} models → {len(drafts)} cards, {new} new events "
+            f"(run `seismo resolve` then `seismo comprehend` to card them)"
+        )
+
+
+@app.command(name="enrich-pypi")
+def enrich_pypi(
+    limit: int = typer.Option(None, help="Cap the number of packages to enrich (rate budget)."),
+) -> None:
+    """Enrichment — fetch each PyPI package's JSON metadata as a ``pypi_metadata`` event, recording
+    ``requires_dist``/``project_urls``/``summary`` (the dependency list a later step turns into
+    typed graph edges). Targets packages with no metadata event yet (self-completing). Run
+    ``resolve`` then ``comprehend`` after."""
+    from seismo.collectors.pypi import PyPICollector
+    from seismo.collectors.runner import persist_drafts
+    from seismo.collectors.targets import select_unenriched_targets
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-pypi"):
+        with session_scope() as session:
+            targets = select_unenriched_targets(session, "pypi", "pypi_metadata", limit=limit)
+        drafts = PyPICollector().metadata(targets)
+        with session_scope() as session:
+            new = persist_drafts(session, drafts)
+        typer.echo(
+            f"[enrich-pypi] {len(targets)} packages → {len(drafts)} metadata events, {new} new "
             f"(run `seismo resolve` then `seismo comprehend` to card them)"
         )
 
@@ -296,6 +351,30 @@ def resolve(cold_start: bool = typer.Option(False, "--cold-start")) -> None:
         typer.echo(f"[resolve] cold_start={cold_start} — {stats.as_note()}")
 
 
+@app.command()
+def triage(
+    limit: int = typer.Option(None, help="Cap the number of candidates this run (cost budget)."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Compute stats without writing decisions or changing tiers."
+    ),
+) -> None:
+    """Layer 2 — continuous discovery triage (Feature 6). Runs AFTER ``resolve`` and BEFORE
+    ``track``: decides which freshly-minted discovery entities are worth tracking and archives the
+    rest (flips ``tracking_tier`` active → archived), so ``track``/enrichment only spend on
+    substantive entities. Escalates to the LLM (``complete_triage``) when configured, else falls
+    back to a deterministic stars/downloads threshold. Pure + no network; idempotent per entity."""
+    from seismo.db import session_scope
+    from seismo.identity.triage import run_triage
+
+    with record_pipeline_run("triage"):
+        with session_scope() as session:
+            stats = run_triage(session, limit=limit, dry_run=dry_run)
+        typer.echo(
+            f"[triage] {stats.candidates} candidates → track={stats.tracked} "
+            f"skip={stats.skipped} (ai={stats.by_ai} threshold={stats.by_threshold})"
+        )
+
+
 @app.command(name="seed-load")
 def seed_load() -> None:
     """Cold-start — load the hand-curated seed universe (doc 14 §3). Idempotent."""
@@ -335,6 +414,21 @@ def score(as_of: str = typer.Option(None, help="ISO date; default now.")) -> Non
         with session_scope() as session:
             stats = run_score(session, when)
         typer.echo(f"[score] as_of={when.date()} — {stats.as_note()}")
+
+
+@app.command(name="derive-edges")
+def derive_edges_cmd(as_of: str = typer.Option(None, help="ISO date; default now.")) -> None:
+    """Layer 2 — typed entity-graph edges (Feature 1). Pure + as-of correct: derives ``built_by`` /
+    ``cited`` / ``depends_on`` edges from already-collected contributors/README/PyPI evidence. No
+    network. Run after ``resolve`` (so merges are settled) and the relevant ``enrich-*`` steps."""
+    from seismo.db import session_scope
+    from seismo.graph.edges import derive_edges
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("derive-edges", when):
+        with session_scope() as session:
+            stats = derive_edges(session, when)
+        typer.echo(f"[derive-edges] as_of={when.date()} — {stats.as_note()}")
 
 
 @app.command()
@@ -429,6 +523,31 @@ def brief(
             )
         typer.echo(
             f"[brief] provider={settings.llm_provider} as_of={when.date()} — {stats.as_note()}"
+        )
+
+
+@app.command()
+def council(
+    top_n: int = typer.Option(
+        10, "--top", help="Review the top N entities by momentum (velocity percentile)."
+    ),
+    entity_id: int = typer.Option(None, help="Force a council review for one entity."),
+    as_of: str = typer.Option(None, help="ISO date; default now."),
+) -> None:
+    """Layer 6b — council review (doc 08 §5). Three independent LLM perspectives (skeptic,
+    evidence auditor, mechanism reviewer) each deliberate separately on an entity's impact brief,
+    drafting one first if needed. Ranked by momentum, independent of the weekly significance
+    gate's own budget. Three calls per brief — expensive by design, so it is never run from
+    ``daily.sh``; invoke explicitly for a small top-N watchlist."""
+    from seismo.checkpoints.council import run_council
+    from seismo.db import session_scope
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("council", when):
+        with session_scope() as session:
+            stats = run_council(session, when, top_n=top_n, entity_id=entity_id)
+        typer.echo(
+            f"[council] provider={settings.llm_provider} as_of={when.date()} — {stats.as_note()}"
         )
 
 

@@ -11,6 +11,7 @@ that yields too little text is skipped rather than stored. Errors are isolated p
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -79,10 +80,8 @@ class _TextExtractor(HTMLParser):
 def html_to_text(html: str, cap: int = _TEXT_CAP) -> str:
     """Extract readable text from an HTML document, collapsed and capped."""
     parser = _TextExtractor()
-    try:
+    with contextlib.suppress(Exception):  # a malformed page shouldn't abort the batch
         parser.feed(html)
-    except Exception:  # noqa: BLE001 — a malformed page shouldn't abort the batch
-        pass
     return re.sub(r"\s+", " ", parser.text()).strip()[:cap]
 
 

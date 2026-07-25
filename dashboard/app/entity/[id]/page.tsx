@@ -19,6 +19,7 @@ export const dynamic = "force-dynamic";
 
 // Which metric best represents "popularity / attention over time", most-preferred first.
 const ATTENTION: { metric: string; label: string }[] = [
+  { metric: "or_tokens_wk", label: "OpenRouter Tokens (wk)" },
   { metric: "hf_downloads_30d", label: "Downloads (30d)" },
   { metric: "gh_stars", label: "GitHub Stars" },
   { metric: "hn_points_7d", label: "Hacker News Points (7d)" },

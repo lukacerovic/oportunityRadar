@@ -20,6 +20,7 @@ export interface RadarEntity {
   provisional: boolean;
   sparkline: number[];
   sources: string[]; // collectors that touched it: github/hn/arxiv/hf/seed/…
+  gated: boolean; // has ever passed the weekly significance gate (queued for/got a brief)
 }
 
 export interface RadarResponse {
@@ -27,6 +28,7 @@ export interface RadarResponse {
   count: number;
   entities: RadarEntity[];
   source_counts: Record<string, number>;
+  gated_count: number;
 }
 
 export interface SearchHit {
@@ -82,6 +84,7 @@ export interface EvidenceItem {
   url: string | null;
   text: string | null;
   score: number | null;
+  unit: string | null;
   occurred_at: string;
 }
 
@@ -184,6 +187,14 @@ export interface BriefExposure {
   magnitude_class: string;
 }
 
+export interface CouncilVerdictItem {
+  role: string;
+  stance: string;
+  confidence: string;
+  reasoning: string;
+  model: string;
+}
+
 export interface Brief {
   id: number;
   entity_id: number;
@@ -205,6 +216,8 @@ export interface Brief {
   summary: string | null;
   evidence_refs: number[];
   versions: number[];
+  council: CouncilVerdictItem[];
+  council_stance: string | null;
 }
 
 export interface BriefListItem {
@@ -225,6 +238,7 @@ export interface ChangeItem {
   entity_id: number | null;
   text: string;
   payload: Record<string, unknown>;
+  category: string | null;
 }
 
 export interface ChangesResponse {

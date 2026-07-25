@@ -27,12 +27,14 @@ export function getRadar(params: {
   state?: string;
   theme?: string;
   source?: string;
+  gated?: boolean;
   limit?: number;
 } = {}): Promise<RadarResponse> {
   const q = new URLSearchParams();
   if (params.state) q.set("state", params.state);
   if (params.theme) q.set("theme", params.theme);
   if (params.source) q.set("source", params.source);
+  if (params.gated) q.set("gated", "true");
   q.set("limit", String(params.limit ?? 200));
   return get<RadarResponse>(`/radar?${q.toString()}`);
 }
