@@ -216,6 +216,57 @@ def test_dossier_exposes_readable_sources(clean_db: Session) -> None:
     assert launch["text"] == "Kimi K3 is a 1T MoE model."
 
 
+def test_dossier_exposes_latest_community_research(clean_db: Session) -> None:
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    eid = _entity(session, "proj", created=t0, attrs={"anchors": {"github": "acme/proj"}})
+    result = {
+        "status": "found",
+        "summary": "The community is cautiously interested.",
+        "sentiment": "mixed_positive",
+        "confidence": "medium",
+        "main_points": ["People are trying it."],
+        "concerns": ["Docs are thin."],
+        "positive_signals": ["Practitioner comments."],
+        "threads": [
+            {
+                "id": "issue:acme/proj#7",
+                "title": "Tried acme/proj",
+                "source": "github",
+                "channel": "GitHub Issues",
+                "url": "https://github.com/acme/proj/issues/7",
+                "score": 42,
+                "comment_count": 12,
+                "created_at": t0.isoformat(),
+                "relevance_score": 80,
+            }
+        ],
+    }
+    session.execute(
+        text(
+            """
+            INSERT INTO entity_community_research
+              (entity_id, source, status, query_set, result, model, researched_at)
+            VALUES
+              (:e, 'github', 'found', CAST(:q AS JSONB), CAST(:r AS JSONB), 'mock', :d)
+            """
+        ),
+        {"e": eid, "q": _json({"queries": ['"acme/proj"']}), "r": _json(result), "d": t0},
+    )
+    session.flush()
+
+    d = (
+        _client(session)
+        .get(f"/entities/{eid}", params={"as_of": (t0 + timedelta(days=1)).isoformat()})
+        .json()
+    )
+    assert d["community"][0]["source"] == "github"
+    assert d["community"][0]["summary"] == "The community is cautiously interested."
+    thread = d["community"][0]["threads"][0]
+    assert thread["channel"] == "GitHub Issues"
+    assert thread["source"] == "github"
+
+
 def test_dossier_returns_card_and_history(clean_db: Session) -> None:
     session = clean_db
     t0 = datetime(2024, 1, 1, tzinfo=UTC)

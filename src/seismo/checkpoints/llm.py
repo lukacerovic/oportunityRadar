@@ -1,12 +1,15 @@
 """Pluggable LLM provider (doc 13 A-13) — the *only* module besides ``contracts`` that touches an
 LLM, and the only place ``anthropic`` is imported (CI invariant-3 greps for this).
 
-Three providers, one signature (:func:`complete_card`):
+Four providers, one signature (:func:`complete_card`):
 
 * ``mock`` — returns the caller's deterministic ``fallback`` card at $0. Dev + CI run here, so the
   whole comprehension stage is exercised end-to-end without a key or a network (doc 05 amendment).
 * ``ollama`` — local model via the REST API with structured-output ``format`` = the tool schema.
   $0, used for plumbing/quality tests on real generations.
+* ``claude_cli`` — headless ``claude -p``, billed to the Claude Code subscription rather than to
+  API credit. Schema is prompted for rather than forced, and each call carries Claude Code's own
+  scaffolding (~24k tokens), so it costs ~10x the API for the same work — see :func:`_claude_cli`.
 * ``anthropic`` — production. Structured output via a **forced tool call** whose input schema is
   the card (doc 05 DR-05.2), so malformed output is an API-level impossibility. Model comes from
   config (``SEISMO_MODEL_LIVE`` live / ``SEISMO_MODEL_HINDCAST`` pinned, doc 13 A-8), never
@@ -29,9 +32,11 @@ logger = logging.getLogger(__name__)
 CARD_TOOL_NAME = "emit_card"
 BRIEF_TOOL_NAME = "emit_brief"
 COUNCIL_TOOL_NAME = "emit_verdict"
+COMMUNITY_TOOL_NAME = "emit_community_verdict"
 _MAX_TOKENS = 2048
 _BRIEF_MAX_TOKENS = 3072  # the brief schema (transmission path + exposures + observables) is larger
 _COUNCIL_MAX_TOKENS = 768  # a verdict is small: stance + confidence + one short argument
+_COMMUNITY_MAX_TOKENS = 2048  # a short verdict: sentiment + a handful of pros/cons/points
 
 # Rough per-MTok (input, output) USD, for cost logging + the budget ceiling only. Confirm against
 # the current price sheet at go-live; dev/CI never spends (mock/ollama = $0).
@@ -120,6 +125,41 @@ def complete_council(
     )
 
 
+def complete_community(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+    purpose: str = "live",
+) -> LLMResult:
+    """Produce a cross-source community verdict as structured JSON — what the community thinks about
+    an entity, distilled from its collected discussion comments. ``fallback`` is the deterministic
+    verdict the ``mock`` provider returns verbatim (and the shape real providers must match).
+
+    Runs on ``community_llm_provider``/``community_model`` when set, so the discussion summarizer
+    can use a paid model while comprehension cards stay on the local one. Both fall back to the
+    global provider/model when empty.
+
+    ``strict_cli`` is the one behavioural difference from every other call site: this is a bulk
+    backlog job, so a silently-substituted fallback would write hundreds of rows of placeholder
+    prose that *read* like real verdicts. Failing loudly instead marks the row ``failed``, and the
+    next run retries it."""
+    return _complete(
+        system,
+        user,
+        schema,
+        fallback=fallback,
+        purpose=purpose,
+        tool_name=COMMUNITY_TOOL_NAME,
+        tool_description="Return the community-opinion verdict for this entity.",
+        max_tokens=_COMMUNITY_MAX_TOKENS,
+        provider=settings.community_llm_provider or None,
+        model=settings.community_model or None,
+        strict_cli=True,
+    )
+
+
 def _complete(
     system: str,
     user: str,
@@ -130,32 +170,47 @@ def _complete(
     tool_name: str,
     tool_description: str,
     max_tokens: int,
+    provider: str | None = None,
+    model: str | None = None,
+    strict_cli: bool = False,
 ) -> LLMResult:
-    provider = settings.llm_provider
+    """``provider``/``model`` override the global settings for one call site (see
+    :func:`complete_community`); ``None`` keeps the global configuration.
+
+    ``strict_cli`` flips the ``claude_cli`` failure policy from fail-closed (substitute the
+    caller's deterministic ``fallback``) to fail-loud. Cards and briefs want the former — a
+    degraded card beats a broken pipeline run. A bulk backlog wants the latter, because a
+    substituted fallback is indistinguishable from a real generation once it is in the database."""
+    provider = provider or settings.llm_provider
     if provider == "mock":
         return LLMResult(content=fallback, model="mock", cost_usd=Decimal(0))
     if provider == "ollama":
-        return _ollama(system, user, schema, max_tokens)
+        return _ollama(system, user, schema, max_tokens, model=model)
     if provider == "anthropic":
-        return _anthropic(system, user, schema, tool_name, tool_description, max_tokens, purpose)
+        return _anthropic(
+            system, user, schema, tool_name, tool_description, max_tokens, purpose, model=model
+        )
     if provider == "claude_cli":
         # The card/brief `schema` is a plain JSON schema, so it maps 1:1 onto the CLI's
         # ``--json-schema`` structured-output flag (unlike Anthropic's forced-tool input_schema
-        # wrapper). Fail-closed: on any CLI failure ``_claude_cli`` returns None and we hand back
-        # the caller's deterministic ``fallback`` card, so this path never raises.
-        result = _claude_cli(f"{system}\n\n{user}", schema)
+        # wrapper).
+        cli_model = model or settings.claude_cli_model
+        usage = _claude_cli_metered(f"{system}\n\n{user}", schema, model=cli_model)
+        if usage.parsed is None and strict_cli:
+            raise RuntimeError(f"claude CLI returned no structured result ({usage.error})")
         return LLMResult(
-            content=result if result is not None else fallback,
+            content=usage.parsed if usage.parsed is not None else fallback,
             # A failed CLI call must not carry the same model tag as a real generation (doc 13 —
             # this exact ambiguity produced a mislabeled comprehension-card version once already).
             model=(
-                f"claude_cli:{settings.claude_cli_model}"
-                if result is not None
-                else "claude_cli:fallback"
+                f"claude_cli:{cli_model}" if usage.parsed is not None else "claude_cli:fallback"
             ),
-            # cost_usd=0: CLI-session usage isn't metered per-token on this path, so we don't
-            # fabricate an estimate. Not a real free lunch — just not separately billed here.
-            cost_usd=Decimal(0),
+            # The CLI reports what the turn *would* have cost on the API. On a Claude Code
+            # subscription nothing is billed, but it is still the only number available to meter
+            # a long unattended run against ``llm_budget_usd``.
+            cost_usd=usage.cost_usd,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
         )
     raise ValueError(f"unknown LLM provider {provider!r}")
 
@@ -168,10 +223,12 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> Decimal:
     )
 
 
-def _ollama(system: str, user: str, schema: dict[str, Any], max_tokens: int) -> LLMResult:
+def _ollama(
+    system: str, user: str, schema: dict[str, Any], max_tokens: int, *, model: str | None = None
+) -> LLMResult:
     import httpx
 
-    model = settings.ollama_model
+    model = model or settings.ollama_model
     resp = httpx.post(
         f"{settings.ollama_host}/api/chat",
         json={
@@ -198,6 +255,44 @@ def _ollama(system: str, user: str, schema: dict[str, Any], max_tokens: int) -> 
     )
 
 
+_CLAUDE_CLI_TIMEOUT_S = 300
+
+
+def _first_json_object(reply: str) -> dict[str, Any] | None:
+    """Extract the first complete JSON object from a free-text reply.
+
+    Without a forced tool call the model's answer is prose-shaped: it may fence the JSON, precede
+    it with "Here's the verdict:", or follow it with a note. Scanning for the first balanced
+    ``{...}`` (string- and escape-aware, so braces inside quotes don't count) handles all three
+    uniformly, where fence-stripping alone handled only one.
+    """
+    start = reply.find("{")
+    if start < 0:
+        return None
+    depth, in_string, escaped = 0, False, False
+    for i, ch in enumerate(reply[start:], start):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(reply[start : i + 1])
+                except json.JSONDecodeError:
+                    return None
+    return None
+
+
 def _anthropic(
     system: str,
     user: str,
@@ -206,10 +301,12 @@ def _anthropic(
     tool_description: str,
     max_tokens: int,
     purpose: str,
+    *,
+    model: str | None = None,
 ) -> LLMResult:
     import anthropic
 
-    model = settings.model_hindcast if purpose == "hindcast" else settings.model_live
+    model = model or (settings.model_hindcast if purpose == "hindcast" else settings.model_live)
     if not model:
         raise RuntimeError(
             "anthropic provider needs SEISMO_MODEL_LIVE (or SEISMO_MODEL_HINDCAST) set to a "
@@ -240,68 +337,115 @@ def _anthropic(
     )
 
 
-def _claude_cli(
-    prompt: str, schema: dict[str, Any], *, timeout_s: int | None = None
-) -> dict[str, Any] | None:
-    """Shell out to the installed ``claude`` CLI in non-interactive print mode with a JSON schema,
-    returning the parsed structured result as a dict, or ``None`` on *any* failure.
+@dataclass
+class CliOutcome:
+    """What one ``claude -p`` invocation produced. ``parsed`` is ``None`` on any failure; the
+    caller decides whether that means "use the fallback" or "raise" (see ``strict_cli``)."""
 
-    Verified against the installed CLI: ``-p/--print`` (non-interactive), ``--bare`` (skip hooks/
-    plugins/CLAUDE.md discovery), ``--model`` (alias override), ``--output-format json`` (wraps the
-    reply in a single JSON result object), and ``--json-schema`` (constrain structured output) are
-    all real flags. The wrapper object carries the answer in its ``result`` field (and signals
-    failures via ``is_error``); ``result`` may be a dict or a JSON-encoded string.
+    parsed: dict[str, Any] | None
+    cost_usd: Decimal = Decimal(0)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    error: str = ""
+
+
+_CLAUDE_CLI_RETRIES = 2  # replies are occasionally cut off mid-JSON on the largest prompts
+
+
+def _claude_cli_metered(
+    prompt: str,
+    schema: dict[str, Any],
+    *,
+    timeout_s: int | None = None,
+    model: str | None = None,
+) -> CliOutcome:
+    """Shell out to the installed ``claude`` CLI in non-interactive print mode with a JSON schema.
+
+    Verified against the installed CLI: ``-p/--print`` (non-interactive), ``--model`` (alias or
+    full snapshot id), ``--output-format json`` (wraps the reply in a single JSON result object)
+    and ``--json-schema`` (constrain structured output) are all real flags. The wrapper carries the
+    answer in ``result`` (and signals failures via ``is_error``); ``result`` may be a dict or a
+    JSON-encoded string.
+
+    **``--bare`` is deliberately not passed.** It suppresses keychain reads along with hooks and
+    plugin sync, so the CLI cannot authenticate and every call comes back
+    ``is_error: true, "Not logged in · Please run /login"``. Because this function fails closed,
+    that failure is silent — callers just quietly get their deterministic fallback forever.
+    Verified directly: identical invocation succeeds without the flag and fails with it.
 
     Fail-closed by contract: subprocess timeout, non-zero exit, unparseable JSON, an ``is_error``
-    wrapper, or a missing/misshapen result all log a warning and return ``None`` — never raise.
+    wrapper, or a missing/misshapen result all log a warning and return ``parsed=None`` — never
+    raise. Retried once, because a truncated reply usually succeeds on a second attempt.
     """
     timeout = settings.claude_cli_timeout_s if timeout_s is None else timeout_s
     cmd = [
         settings.claude_cli_bin,
         "-p",
-        "--bare",
         "--model",
-        settings.claude_cli_model,
+        model or settings.claude_cli_model,
         "--output-format",
         "json",
         "--json-schema",
         json.dumps(schema),
         prompt,
     ]
+    outcome = CliOutcome(parsed=None)
+    for attempt in range(1, _CLAUDE_CLI_RETRIES + 1):
+        outcome = _claude_cli_once(cmd, timeout)
+        if outcome.parsed is not None:
+            return outcome
+        logger.warning("claude_cli: attempt %d/%d failed — %s", attempt, _CLAUDE_CLI_RETRIES,
+                       outcome.error)
+    return outcome
+
+
+def _claude_cli_once(cmd: list[str], timeout: int) -> CliOutcome:
+    def fail(msg: str) -> CliOutcome:
+        return CliOutcome(parsed=None, error=msg)
+
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        logger.warning("claude_cli: timed out after %ss", timeout)
-        return None
+        return fail(f"timed out after {timeout}s")
     except OSError as exc:  # binary missing / not executable
-        logger.warning("claude_cli: could not launch %r (%s)", settings.claude_cli_bin, exc)
-        return None
+        return fail(f"could not launch {settings.claude_cli_bin!r} ({exc})")
 
     if proc.returncode != 0:
-        logger.warning(
-            "claude_cli: exit %d — %s", proc.returncode, (proc.stderr or "").strip()[:500]
-        )
-        return None
+        return fail(f"exit {proc.returncode} — {(proc.stderr or '').strip()[:300]}")
 
     try:
         wrapper = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        logger.warning("claude_cli: stdout was not JSON (%s)", exc)
-        return None
+        return fail(f"stdout was not JSON ({exc})")
 
-    try:
-        if wrapper.get("is_error"):
-            logger.warning("claude_cli: CLI reported an error — %s", wrapper.get("result"))
-            return None
-        result = wrapper["result"]
-        if isinstance(result, str):
-            result = json.loads(result)
-        if not isinstance(result, dict):
-            raise TypeError(f"expected dict result, got {type(result).__name__}")
-        return result
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        logger.warning("claude_cli: could not extract structured result (%s)", exc)
-        return None
+    if wrapper.get("is_error"):
+        return fail(f"CLI reported an error — {str(wrapper.get('result'))[:200]}")
+
+    usage = wrapper.get("usage") or {}
+    result = wrapper.get("result")
+    if isinstance(result, str):
+        # --json-schema normally yields clean JSON, but a model can still fence or preface it, so
+        # fall back to scanning for the first balanced object rather than failing the whole call.
+        result = _first_json_object(result)
+    if not isinstance(result, dict):
+        return fail(f"no structured result in reply: {str(wrapper.get('result'))[:200]!r}")
+
+    return CliOutcome(
+        parsed=result,
+        cost_usd=Decimal(str(wrapper.get("total_cost_usd") or 0)),
+        input_tokens=int(usage.get("input_tokens") or 0),
+        output_tokens=int(usage.get("output_tokens") or 0),
+    )
+
+
+def _claude_cli(
+    prompt: str, schema: dict[str, Any], *, timeout_s: int | None = None
+) -> dict[str, Any] | None:
+    """The parsed structured result, or ``None`` on any failure — the original fail-closed contract
+    used by :func:`complete_triage`. Thin wrapper over :func:`_claude_cli_metered`, which is the
+    single implementation; this exists so callers that have no use for token/cost accounting keep
+    the simpler return type."""
+    return _claude_cli_metered(prompt, schema, timeout_s=timeout_s).parsed
 
 
 def complete_triage(facts: dict[str, Any]) -> dict[str, Any] | None:
