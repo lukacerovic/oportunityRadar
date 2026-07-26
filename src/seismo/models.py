@@ -222,6 +222,24 @@ class ImpactBrief(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EntityCommunityResearch(Base):
+    __tablename__ = "entity_community_research"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    query_set: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    model: Mapped[str | None] = mapped_column(Text)
+    researched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class BriefScore(Base):
     __tablename__ = "brief_scores"
 

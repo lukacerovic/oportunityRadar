@@ -26,6 +26,7 @@ _CLEAR_TABLES = [
     "entity_metrics_daily",
     "comprehension_cards",
     "gate_decisions",
+    "entity_community_research",
     "brief_scores",
     "impact_briefs",
     "changes_daily",

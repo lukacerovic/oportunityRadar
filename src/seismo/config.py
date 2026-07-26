@@ -38,9 +38,25 @@ class Settings(BaseSettings):
 
     # --- source credentials (optional until their collector lands) ---
     github_token: str = ""
-    reddit_client_id: str = ""
-    reddit_client_secret: str = ""
     hf_token: str = ""
+
+    # --- community research (doc 15) — sources: github, hf, hn ---
+    community_research_daily_limit: int = 200
+    community_max_threads_per_entity: int = 5
+    community_max_comments_per_thread: int = 20
+    community_search_queries_per_entity: int = 5
+
+    # The cross-source community verdict runs on its own provider/model, independent of the global
+    # ``llm_provider``/``model_live`` above: the discussion summarizer needs a model that reads
+    # tone and sarcasm correctly, while comprehension cards can stay on the local $0 model. Both
+    # fall back to the global setting when left empty, so nothing changes unless you set them.
+    community_llm_provider: str = ""  # mock | ollama | claude_cli | anthropic; "" = llm_provider
+    community_model: str = ""  # provider-specific model id; "" = use model_live / ollama_model
+
+    # ``claude_cli`` shells out to the local Claude Code binary, so the summarizer runs on the
+    # Claude Code subscription instead of API credit. Absolute path matters for launchd/cron,
+    # which do not inherit an interactive PATH.
+    claude_cli_bin: str = "claude"
 
     # --- budgets & thresholds (doc 13 Part C) ---
     briefs_per_week: int = 5

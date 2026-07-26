@@ -8,6 +8,8 @@ import { CardPanel } from "@/components/CardPanel";
 import { MetricChart } from "@/components/MetricChart";
 import { MaturityLadder } from "@/components/MaturityLadder";
 import { EvidenceList } from "@/components/EvidenceList";
+import { CommunityDiscussion } from "@/components/CommunityDiscussion";
+import { CommunityVerdict } from "@/components/CommunityVerdict";
 import { MarketImpact } from "@/components/MarketImpact";
 import { MomentumTimeline } from "@/components/MomentumTimeline";
 import { Kpi, KpiRow } from "@/components/Kpi";
@@ -123,6 +125,16 @@ export default async function DossierPage({ params }: { params: { id: string } }
               </div>
               <EvidenceList items={d.evidence ?? []} />
             </section>
+
+            <section>
+              <div className="mb-2 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-text">Community Discussion</h2>
+                <span className="text-xs text-faint">
+                  {(d.community ?? []).filter((c) => c.status === "found" && c.threads.length > 0).length}
+                </span>
+              </div>
+              <CommunityDiscussion items={d.community ?? []} />
+            </section>
           </div>
 
           <div className="space-y-4">
@@ -145,6 +157,8 @@ export default async function DossierPage({ params }: { params: { id: string } }
             <MarketImpact brief={brief} entityId={id} />
 
             <MaturityLadder reached={d.maturity} />
+
+            <CommunityVerdict items={d.community ?? []} />
           </div>
         </div>
 
