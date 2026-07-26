@@ -35,6 +35,34 @@ class RadarEntity(BaseModel):
     gated: bool  # has ever passed the weekly significance gate (queued for/got a brief)
 
 
+class GraphNode(BaseModel):
+    """One node in the correlation graph — a tracked entity, or a concept an LLM pass named
+    (e.g. "Claude Code", "MCP") that isn't itself a tracked entity."""
+
+    id: str  # "e:<entity_id>" for entities, "c:<slug>" for bare concepts
+    label: str
+    kind: str  # entity | concept
+    category: str | None = None
+    entity_id: int | None = None  # None for a concept node
+
+
+class GraphEdge(BaseModel):
+    """One edge — either from the deterministic spine (`entity_graph_edges`, every row justified
+    by a raw_event) or the LLM-reasoned relation graph (`entity_semantic_edges`, a model's
+    judgement). `kind` is what a consumer must check before trusting an edge as fact."""
+
+    source: str
+    target: str
+    relation: str
+    kind: str  # deterministic | reasoned
+    weight: float = 1.0
+
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
 class RadarResponse(BaseModel):
     as_of: datetime
     count: int
@@ -92,6 +120,17 @@ class EvidenceItem(BaseModel):
     occurred_at: datetime
 
 
+class RelatedEntity(BaseModel):
+    """One `entity_semantic_edges` neighbor — an LLM's judgement, never a rule's. `entity_id` is
+    None when the other side is a bare concept (e.g. "Claude Code"), not a tracked entity."""
+
+    label: str
+    entity_id: int | None
+    category: str | None
+    relation: str  # semantically_similar_to | conceptually_related_to
+    confidence_score: float
+
+
 class EntityDossier(BaseModel):
     """The full `/entity/[id]` view (doc 10 §2)."""
 
@@ -113,6 +152,7 @@ class EntityDossier(BaseModel):
     metrics: list[MetricSeries]
     momentum_history: list[MomentumPoint]
     evidence: list[EvidenceItem]  # sources you can open and read
+    related: list[RelatedEntity] = []  # entity_semantic_edges neighbors, highest confidence first
     card: Card | None
     card_versions: list[int]
 

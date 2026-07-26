@@ -178,7 +178,11 @@ export default async function BriefPage({ params }: { params: { id: string } }) 
           </div>
         )}
 
-        <CouncilReview verdicts={brief.council} aggregate={brief.council_stance} />
+        <CouncilReview
+          entityId={brief.entity_id}
+          verdicts={brief.council}
+          aggregate={brief.council_stance}
+        />
 
         {/* review action bar */}
         <section className="panel p-5">

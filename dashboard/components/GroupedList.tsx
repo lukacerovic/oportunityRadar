@@ -5,14 +5,14 @@ import { titleize } from "@/lib/format";
 
 // Shared overwhelm-fix for long flat lists (Changes/Gate pages routinely carry 300-1000+ rows).
 // Groups by an existing taxonomy field (category — no new taxonomy invented) and adds a
-// client-side text filter. Large groups start collapsed; a live search auto-expands matches.
+// client-side text filter. Every group starts collapsed — consistent regardless of size, expand
+// on click; a live search auto-expands matches.
 interface GroupedListProps<T> {
   items: T[];
   getCategory: (item: T) => string | null;
   getSearchText: (item: T) => string;
   renderItem: (item: T) => React.ReactNode;
   keyOf: (item: T) => string | number;
-  collapseAbove?: number;
   itemLabel?: string;
 }
 
@@ -22,7 +22,6 @@ export function GroupedList<T>({
   getSearchText,
   renderItem,
   keyOf,
-  collapseAbove = 8,
   itemLabel = "items",
 }: GroupedListProps<T>) {
   const [query, setQuery] = useState("");
@@ -63,7 +62,7 @@ export function GroupedList<T>({
       )}
       <div className="space-y-2">
         {groups.map(([cat, groupItems]) => {
-          const defaultOpen = searching || groupItems.length <= collapseAbove;
+          const defaultOpen = searching;
           // `open` as a plain prop can't stay in sync with a user manually toggling the native
           // <details> element — React only writes it when the computed value itself changes
           // across renders. Keying on the computed default forces a remount (not a reconcile)

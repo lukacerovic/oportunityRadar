@@ -9,6 +9,7 @@ import { MetricChart } from "@/components/MetricChart";
 import { MaturityLadder } from "@/components/MaturityLadder";
 import { EvidenceList } from "@/components/EvidenceList";
 import { MarketImpact } from "@/components/MarketImpact";
+import { RelatedEntities } from "@/components/RelatedEntities";
 import { MomentumTimeline } from "@/components/MomentumTimeline";
 import { Kpi, KpiRow } from "@/components/Kpi";
 import { ApiError } from "@/components/ApiError";
@@ -144,6 +145,8 @@ export default async function DossierPage({ params }: { params: { id: string } }
             <MomentumTimeline history={d.momentum_history ?? []} />
 
             <MarketImpact brief={brief} entityId={id} />
+
+            <RelatedEntities items={d.related ?? []} />
 
             <MaturityLadder reached={d.maturity} />
           </div>

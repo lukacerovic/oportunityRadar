@@ -88,6 +88,14 @@ export interface EvidenceItem {
   occurred_at: string;
 }
 
+export interface RelatedEntity {
+  label: string;
+  entity_id: number | null;
+  category: string | null;
+  relation: string;
+  confidence_score: number;
+}
+
 export interface EntityDossier {
   id: number;
   name: string;
@@ -107,6 +115,7 @@ export interface EntityDossier {
   metrics: MetricSeries[];
   momentum_history: MomentumPoint[];
   evidence: EvidenceItem[];
+  related: RelatedEntity[];
   card: Card | null;
   card_versions: number[];
 }
@@ -291,4 +300,25 @@ export interface ScorePacketResponse {
   metric_history: Record<string, [string, number][]>;
   auto_summary: string;
   existing_score: ExistingScore | null;
+}
+
+export interface GraphNode {
+  id: string; // "e:<entity_id>" for a tracked entity, "c:<slug>" for a bare concept
+  label: string;
+  kind: "entity" | "concept";
+  category: string | null;
+  entity_id: number | null;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+  kind: "deterministic" | "reasoned";
+  weight: number;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
 }

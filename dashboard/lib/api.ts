@@ -5,6 +5,7 @@ import type {
   ChangesResponse,
   EntityDossier,
   GateWeekResponse,
+  GraphResponse,
   HealthResponse,
   QueueItem,
   RadarResponse,
@@ -83,6 +84,10 @@ export function getCalibration(): Promise<CalibrationResponse> {
 
 export function getScorePacket(entityId: number): Promise<ScorePacketResponse> {
   return get<ScorePacketResponse>(`/briefs/${entityId}/score-packet`, 30);
+}
+
+export function getGraph(): Promise<GraphResponse> {
+  return get<GraphResponse>(`/graph`, 3600); // rebuilds infrequently, cache generously
 }
 
 export const API_BASE = BASE;

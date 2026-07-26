@@ -293,4 +293,31 @@ export const HELP: Record<string, HelpContent> = {
       "This is the safety valve: automation merges the obvious cases, you arbitrate the rest.",
     ],
   },
+  graph: {
+    title: "Reading the Graph",
+    intro:
+      "Two different kinds of relation between entities, drawn on top of each other but never merged: one is provable, one is a model's opinion. The colour of a line tells you which.",
+    sections: [
+      {
+        title: "Edge colours",
+        rows: [
+          { term: "Teal line", desc: "Deterministic — built_by, cited, or depends_on. Every one of these is derived from a specific raw event (a GitHub contributor list, a README citation, a PyPI dependency list); it can always be traced back to proof." },
+          { term: "Purple line", desc: "LLM-reasoned — semantically_similar_to or conceptually_related_to. A model judged these two things are related; no rule could have derived it. Treat as a lead worth checking, not a fact." },
+        ],
+      },
+      {
+        title: "Nodes",
+        rows: [
+          { term: "Coloured circle", desc: "A tracked entity, coloured by its category." },
+          { term: "Grey circle", desc: "A concept an LLM pass named (e.g. \"Claude Code\", \"MCP\") that isn't itself a tracked entity — it only exists here because something was compared to it." },
+          { term: "Size", desc: "Bigger = more connections. A large node is a hub worth understanding first." },
+        ],
+      },
+    ],
+    analyse: [
+      "This graph is a one-time snapshot (see GRAPH_PLAN.md) — it does not update itself as new entities are tracked.",
+      "Click a node for its connection count and, for a tracked entity, a link to its full dossier.",
+      "A purple-only cluster with no teal edges at all is the most interesting case: a correlation no rule could ever have found.",
+    ],
+  },
 };

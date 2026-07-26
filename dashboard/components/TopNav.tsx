@@ -7,6 +7,7 @@ const NAV = [
   { href: "/changes/latest", label: "Activity", hint: "What moved recently — new items, state changes" },
   { href: "/gate/current", label: "Gate", hint: "The weekly shortlist of items significant enough to analyze" },
   { href: "/brief", label: "Briefs", hint: "Market-impact analyses — which public companies a shift could move" },
+  { href: "/graph", label: "Graph", hint: "The correlation graph — deterministic spine + LLM-reasoned relations" },
 ];
 
 export function TopNav({ active = "/" }: { active?: string }) {

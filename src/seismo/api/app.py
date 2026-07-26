@@ -8,6 +8,7 @@ OpenAPI schema generates a drift-proof TS client.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -354,6 +355,7 @@ def dossier(
         metrics=metrics,
         momentum_history=history,
         evidence=evidence,
+        related=_related(session, canonical),
         card=card,
         card_versions=versions,
     )
@@ -458,6 +460,49 @@ def _metric_series(session: Session, canonical: int, as_of: datetime) -> list[m.
     for metric, day, value in rows:
         by_metric.setdefault(metric, []).append(m.SparkPoint(day=day, value=float(value)))
     return [m.MetricSeries(metric=k, points=v) for k, v in sorted(by_metric.items())]
+
+
+def _related(session: Session, canonical: int) -> list[m.RelatedEntity]:
+    """`entity_semantic_edges` neighbors in either direction — a model's judgement, never a rule's
+    (see GRAPH_PLAN.md consumer #1). Highest confidence first."""
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT dst_label AS label, dst_entity_id AS eid, relation, confidence_score
+                FROM entity_semantic_edges WHERE src_entity_id = :id
+                UNION ALL
+                SELECT src_label AS label, src_entity_id AS eid, relation, confidence_score
+                FROM entity_semantic_edges WHERE dst_entity_id = :id
+                ORDER BY confidence_score DESC
+                """
+            ),
+            {"id": canonical},
+        )
+        .mappings()
+        .all()
+    )
+    eids = [r["eid"] for r in rows if r["eid"] is not None]
+    categories: dict[int, str | None] = {}
+    if eids:
+        # Live category, not category_asof: entity_semantic_edges is itself a frozen one-time
+        # snapshot with no as_of dimension (GRAPH_PLAN.md) — as-of-scoping just this join would
+        # be false precision on top of data that isn't versioned in the first place.
+        categories = dict(
+            session.execute(
+                text("SELECT id, category FROM entities WHERE id = ANY(:ids)"), {"ids": eids}
+            ).all()
+        )
+    return [
+        m.RelatedEntity(
+            label=r["label"],
+            entity_id=r["eid"],
+            category=categories.get(r["eid"]) if r["eid"] is not None else None,
+            relation=r["relation"],
+            confidence_score=float(r["confidence_score"]),
+        )
+        for r in rows
+    ]
 
 
 def _card(session: Session, canonical: int, as_of: datetime) -> tuple[m.Card | None, list[int]]:
@@ -755,6 +800,10 @@ def brief_detail(
     version: int | None = Query(None, description="A specific version; default the latest."),
 ) -> m.Brief:
     """One entity's impact brief, rendered for the review page (doc 08 §4)."""
+    return _brief_response(session, entity_id, version)
+
+
+def _brief_response(session: Session, entity_id: int, version: int | None = None) -> m.Brief:
     rows = (
         session.execute(
             text(
@@ -816,6 +865,29 @@ def brief_detail(
         council=council,
         council_stance=council_stance,
     )
+
+
+@app.post(
+    "/briefs/{entity_id}/council",
+    response_model=m.Brief,
+    dependencies=[Depends(require_token)],
+)
+def run_council_now(
+    entity_id: int,
+    session: Session = Depends(get_session),
+) -> m.Brief:
+    """Trigger one council review, on demand, for one entity only — the click-triggered path
+    (never bulk/batch). Same `run_council(entity_id=...)` the CLI uses, just invoked from the
+    dashboard's "Run council review" button instead of a terminal; three LLM calls happen here,
+    synchronously, only because a human just asked for exactly this one."""
+    from seismo.checkpoints.council import run_council
+
+    stats = run_council(session, datetime.now(UTC), entity_id=entity_id)
+    if stats.reviewed == 0:
+        raise HTTPException(
+            status_code=422, detail="council review failed to produce a brief for this entity"
+        )
+    return _brief_response(session, entity_id)
 
 
 @app.post(
@@ -1113,6 +1185,110 @@ def search(
         )
         for r in rows
     ]
+
+
+# --- correlation graph (doc 13 — GRAPH_PLAN.md) ------------------------------
+
+
+def _concept_id(label: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    return f"c:{slug or 'unknown'}"
+
+
+@app.get("/graph", response_model=m.GraphResponse)
+def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
+    """The correlation graph: the deterministic spine (`entity_graph_edges` — built_by/cited/
+    depends_on, every row justified by a raw_event) plus the LLM-reasoned relation graph
+    (`entity_semantic_edges` — semantically_similar_to/conceptually_related_to). Kept visually
+    distinguishable by the caller (`kind` on each edge) since one is provable and the other is a
+    model's judgement — never merge the two into one undifferentiated line style."""
+    nodes: dict[str, m.GraphNode] = {}
+    edges: list[m.GraphEdge] = []
+
+    def entity_id_of(eid: int) -> str:
+        return f"e:{eid}"
+
+    det_rows = (
+        session.execute(
+            text(
+                """
+                SELECT ge.src_entity_id, ge.dst_entity_id, ge.edge_type, ge.weight,
+                       e1.canonical_name AS src_name, e1.category AS src_cat,
+                       e2.canonical_name AS dst_name, e2.category AS dst_cat
+                FROM entity_graph_edges ge
+                JOIN entities e1 ON e1.id = ge.src_entity_id
+                JOIN entities e2 ON e2.id = ge.dst_entity_id
+                """
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for r in det_rows:
+        sid, did = entity_id_of(r["src_entity_id"]), entity_id_of(r["dst_entity_id"])
+        nodes.setdefault(
+            sid,
+            m.GraphNode(
+                id=sid, label=r["src_name"], kind="entity",
+                category=r["src_cat"], entity_id=r["src_entity_id"],
+            ),
+        )
+        nodes.setdefault(
+            did,
+            m.GraphNode(
+                id=did, label=r["dst_name"], kind="entity",
+                category=r["dst_cat"], entity_id=r["dst_entity_id"],
+            ),
+        )
+        edges.append(
+            m.GraphEdge(
+                source=sid, target=did, relation=r["edge_type"],
+                kind="deterministic", weight=float(r["weight"]),
+            )
+        )
+
+    sem_rows = (
+        session.execute(
+            text(
+                """
+                SELECT se.src_entity_id, se.dst_entity_id, se.src_label, se.dst_label,
+                       se.relation, se.confidence_score,
+                       e1.category AS src_cat, e2.category AS dst_cat
+                FROM entity_semantic_edges se
+                LEFT JOIN entities e1 ON e1.id = se.src_entity_id
+                LEFT JOIN entities e2 ON e2.id = se.dst_entity_id
+                """
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for r in sem_rows:
+        src_eid, dst_eid = r["src_entity_id"], r["dst_entity_id"]
+        sid = entity_id_of(src_eid) if src_eid is not None else _concept_id(r["src_label"])
+        did = entity_id_of(dst_eid) if dst_eid is not None else _concept_id(r["dst_label"])
+        nodes.setdefault(
+            sid,
+            m.GraphNode(
+                id=sid, label=r["src_label"], kind="entity" if src_eid is not None else "concept",
+                category=r["src_cat"], entity_id=src_eid,
+            ),
+        )
+        nodes.setdefault(
+            did,
+            m.GraphNode(
+                id=did, label=r["dst_label"], kind="entity" if dst_eid is not None else "concept",
+                category=r["dst_cat"], entity_id=dst_eid,
+            ),
+        )
+        edges.append(
+            m.GraphEdge(
+                source=sid, target=did, relation=r["relation"],
+                kind="reasoned", weight=float(r["confidence_score"]),
+            )
+        )
+
+    return m.GraphResponse(nodes=list(nodes.values()), edges=edges)
 
 
 def _f(value: Any) -> float | None:

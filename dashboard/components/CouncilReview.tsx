@@ -1,5 +1,11 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { titleize } from "@/lib/format";
 import type { CouncilVerdictItem } from "@/lib/types";
+
+const BASE = process.env.SEISMO_API_BASE ?? "http://127.0.0.1:8000";
 
 const STANCE: Record<string, { label: string; color: string }> = {
   adopt: { label: "Adopt", color: "#34D399" },
@@ -18,12 +24,32 @@ const ROLE_LABEL: Record<string, string> = {
 // own counter_mechanism self-critique, but genuinely separate calls that can disagree with each
 // other and with the brief itself. Empty unless `seismo council` has reviewed this entity.
 export function CouncilReview({
+  entityId,
   verdicts,
   aggregate,
 }: {
+  entityId: number;
   verdicts: CouncilVerdictItem[];
   aggregate: string | null;
 }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runNow() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/briefs/${entityId}/council`, { method: "POST" });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      router.refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (verdicts.length === 0) {
     return (
       <section className="panel mb-5 p-5">
@@ -32,9 +58,21 @@ export function CouncilReview({
         </div>
         <p className="mt-1 text-xs text-muted">
           Not yet reviewed. Three independent perspectives (skeptic, evidence auditor, mechanism
-          reviewer) can deliberate on this brief separately — run{" "}
-          <code className="text-accent">seismo council</code> to add it to the top-N watchlist.
+          reviewer) can deliberate on this brief — triggered only for this one entity, right now,
+          never as part of a batch (three LLM calls, so it only runs when someone actually asks).
         </p>
+        <button
+          onClick={runNow}
+          disabled={busy}
+          className="mt-3 rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg transition disabled:opacity-50"
+        >
+          {busy ? "Running council review…" : "Run council review"}
+        </button>
+        {error && (
+          <div className="mt-2 text-xs text-warn">
+            {error} — start the API with <code className="text-accent">uv run seismo serve</code>.
+          </div>
+        )}
       </section>
     );
   }
