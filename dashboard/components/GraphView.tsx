@@ -31,15 +31,17 @@ function buildGraph(data: GraphResponse): Graph {
 
   for (const n of data.nodes) {
     const d = degree[n.id] ?? 1;
+    const base = Math.min(4 + d * 1.5, 20);
     graph.addNode(n.id, {
-      label: n.label,
-      size: Math.min(4 + d * 1.5, 20),
+      label: n.seed ? `🔥 ${n.label}` : n.label,
+      size: n.seed ? Math.min(base + 4, 24) : base,
       color: n.kind === "concept" ? "#475569" : categoryColor(n.category),
       x: Math.random(),
       y: Math.random(),
       nodeKind: n.kind,
       category: n.category,
       entityId: n.entity_id,
+      seed: n.seed,
     });
   }
   for (const e of data.edges) {
@@ -99,6 +101,11 @@ function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[]
           <div className="mt-0.5 text-xs text-muted">
             {node.kind === "concept" ? "Concept (not a tracked entity)" : titleize(node.category)}
           </div>
+          {node.seed && (
+            <div className="mt-1 inline-block rounded-full bg-[#A78BFA14] px-2 py-0.5 text-[10px] font-medium text-[#A78BFA]">
+              🔥 Trending — gated or breakout/accelerating
+            </div>
+          )}
         </div>
         <button onClick={onClose} className="text-faint hover:text-text" aria-label="Close">
           ✕
@@ -160,6 +167,10 @@ export function GraphView({ data }: { data: GraphResponse }) {
         <div className="flex items-center gap-2">
           <span className="h-[2px] w-4" style={{ background: REASONED_COLOR }} />
           <span className="text-muted">LLM-reasoned (semantically_similar_to / conceptually_related_to)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>🔥</span>
+          <span className="text-muted">Trending — gated or breakout/accelerating</span>
         </div>
       </div>
 

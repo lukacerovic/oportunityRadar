@@ -308,6 +308,7 @@ export interface GraphNode {
   kind: "entity" | "concept";
   category: string | null;
   entity_id: number | null;
+  seed: boolean; // gated or breakout/accelerating — same signal as Radar's Gated pill / 🔥 Taking off
 }
 
 export interface GraphEdge {

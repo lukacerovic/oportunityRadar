@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getGraph } from "@/lib/api";
 import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
@@ -8,10 +9,15 @@ import type { GraphResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function GraphPage() {
+export default async function GraphPage({
+  searchParams,
+}: {
+  searchParams: { trending?: string };
+}) {
+  const trending = searchParams.trending === "true";
   let data: GraphResponse;
   try {
-    data = await getGraph();
+    data = await getGraph({ trending });
   } catch (e) {
     return (
       <>
@@ -36,13 +42,32 @@ export default async function GraphPage() {
               drag to pan, scroll to zoom.
             </p>
           </div>
+          <Link
+            href={trending ? "/graph" : "/graph?trending=true"}
+            title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs."
+            className={`rounded-full border px-3 py-1 text-xs transition ${
+              trending ? "text-bg" : "text-muted hover:text-text"
+            }`}
+            style={trending ? { background: "#A78BFA", borderColor: "#A78BFA" } : { borderColor: "#1E2A2C" }}
+          >
+            🔥 Trending only
+          </Link>
         </div>
 
         {data.nodes.length === 0 ? (
           <div className="panel p-10 text-center text-sm text-muted">
-            No graph data yet. Run <code className="text-accent">seismo derive-edges</code> for
-            the deterministic spine, or import a graphify pass&rsquo;s reasoned edges via{" "}
-            <code className="text-accent">scripts/import_semantic_edges.py</code>.
+            {trending ? (
+              <>
+                No entity has passed the gate or is breakout/accelerating yet — nothing to show in
+                trending mode. <Link href="/graph" className="text-accent hover:underline">View the full graph →</Link>
+              </>
+            ) : (
+              <>
+                No graph data yet. Run <code className="text-accent">seismo derive-edges</code> for
+                the deterministic spine, or import a graphify pass&rsquo;s reasoned edges via{" "}
+                <code className="text-accent">scripts/import_semantic_edges.py</code>.
+              </>
+            )}
           </div>
         ) : (
           <GraphViewLoader data={data} />

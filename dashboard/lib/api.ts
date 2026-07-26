@@ -86,8 +86,9 @@ export function getScorePacket(entityId: number): Promise<ScorePacketResponse> {
   return get<ScorePacketResponse>(`/briefs/${entityId}/score-packet`, 30);
 }
 
-export function getGraph(): Promise<GraphResponse> {
-  return get<GraphResponse>(`/graph`, 3600); // rebuilds infrequently, cache generously
+export function getGraph(params: { trending?: boolean } = {}): Promise<GraphResponse> {
+  const q = params.trending ? "?trending=true" : "";
+  return get<GraphResponse>(`/graph${q}`, 3600); // rebuilds infrequently, cache generously
 }
 
 export const API_BASE = BASE;

@@ -1196,18 +1196,60 @@ def _concept_id(label: str) -> str:
 
 
 @app.get("/graph", response_model=m.GraphResponse)
-def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
+def graph(
+    session: Session = Depends(get_session),
+    trending: bool = Query(
+        False,
+        description=(
+            "Only entities that ever passed the significance gate or are currently "
+            "breakout/accelerating, plus their direct neighbors — cuts long-tail clutter "
+            "(e.g. citation-only paper stubs with no other signal)."
+        ),
+    ),
+) -> m.GraphResponse:
     """The correlation graph: the deterministic spine (`entity_graph_edges` — built_by/cited/
     depends_on, every row justified by a raw_event) plus the LLM-reasoned relation graph
     (`entity_semantic_edges` — semantically_similar_to/conceptually_related_to). Kept visually
     distinguishable by the caller (`kind` on each edge) since one is provable and the other is a
-    model's judgement — never merge the two into one undifferentiated line style."""
+    model's judgement — never merge the two into one undifferentiated line style.
+
+    `seed` on every node marks the same "earned attention" signal as the Radar's Gated pill and
+    🔥 Taking off strip (gate pass or breakout/accelerating momentum) — the reason a node is worth
+    looking at, as opposed to a neighbor pulled in only for context. `trending=true` prunes the
+    graph down to seeds plus their direct neighbors instead of the full snapshot."""
     nodes: dict[str, m.GraphNode] = {}
     edges: list[m.GraphEdge] = []
 
     def entity_id_of(eid: int) -> str:
         return f"e:{eid}"
 
+    seed_ids: set[int] = set(
+        session.execute(
+            text(
+                """
+                WITH ms AS (
+                    SELECT DISTINCT ON (entity_id) entity_id, state
+                    FROM momentum_states ORDER BY entity_id, day DESC
+                ),
+                gp AS (
+                    SELECT DISTINCT entity_id FROM gate_decisions WHERE decision = 'pass'
+                )
+                SELECT e.id FROM entities e
+                LEFT JOIN ms ON ms.entity_id = e.id
+                LEFT JOIN gp ON gp.entity_id = e.id
+                WHERE e.merged_into IS NULL
+                  AND (gp.entity_id IS NOT NULL OR ms.state IN ('breakout', 'accelerating'))
+                """
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    def is_seed(eid: int | None) -> bool:
+        return eid is not None and eid in seed_ids
+
+    seed_filter = "WHERE ge.src_entity_id = ANY(:seed) OR ge.dst_entity_id = ANY(:seed) "
     det_rows = (
         session.execute(
             text(
@@ -1219,7 +1261,9 @@ def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
                 JOIN entities e1 ON e1.id = ge.src_entity_id
                 JOIN entities e2 ON e2.id = ge.dst_entity_id
                 """
-            )
+                + (seed_filter if trending else "")
+            ),
+            ({"seed": list(seed_ids)} if trending else {}),
         )
         .mappings()
         .all()
@@ -1231,6 +1275,7 @@ def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
             m.GraphNode(
                 id=sid, label=r["src_name"], kind="entity",
                 category=r["src_cat"], entity_id=r["src_entity_id"],
+                seed=is_seed(r["src_entity_id"]),
             ),
         )
         nodes.setdefault(
@@ -1238,6 +1283,7 @@ def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
             m.GraphNode(
                 id=did, label=r["dst_name"], kind="entity",
                 category=r["dst_cat"], entity_id=r["dst_entity_id"],
+                seed=is_seed(r["dst_entity_id"]),
             ),
         )
         edges.append(
@@ -1247,6 +1293,7 @@ def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
             )
         )
 
+    sem_seed_filter = "WHERE se.src_entity_id = ANY(:seed) OR se.dst_entity_id = ANY(:seed) "
     sem_rows = (
         session.execute(
             text(
@@ -1258,7 +1305,9 @@ def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
                 LEFT JOIN entities e1 ON e1.id = se.src_entity_id
                 LEFT JOIN entities e2 ON e2.id = se.dst_entity_id
                 """
-            )
+                + (sem_seed_filter if trending else "")
+            ),
+            ({"seed": list(seed_ids)} if trending else {}),
         )
         .mappings()
         .all()
@@ -1271,14 +1320,14 @@ def graph(session: Session = Depends(get_session)) -> m.GraphResponse:
             sid,
             m.GraphNode(
                 id=sid, label=r["src_label"], kind="entity" if src_eid is not None else "concept",
-                category=r["src_cat"], entity_id=src_eid,
+                category=r["src_cat"], entity_id=src_eid, seed=is_seed(src_eid),
             ),
         )
         nodes.setdefault(
             did,
             m.GraphNode(
                 id=did, label=r["dst_label"], kind="entity" if dst_eid is not None else "concept",
-                category=r["dst_cat"], entity_id=dst_eid,
+                category=r["dst_cat"], entity_id=dst_eid, seed=is_seed(dst_eid),
             ),
         )
         edges.append(

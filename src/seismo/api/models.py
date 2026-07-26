@@ -44,6 +44,7 @@ class GraphNode(BaseModel):
     kind: str  # entity | concept
     category: str | None = None
     entity_id: int | None = None  # None for a concept node
+    seed: bool = False  # gated or breakout/accelerating — the "why this is on screen" signal
 
 
 class GraphEdge(BaseModel):

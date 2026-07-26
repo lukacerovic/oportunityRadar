@@ -539,3 +539,64 @@ def test_changes_and_calibration_and_scoring(clean_db: Session) -> None:
         text("SELECT materialized FROM brief_scores WHERE brief_id = :b"), {"b": bid}
     ).scalar_one()
     assert stored == "yes"
+
+
+def test_graph_trending_prunes_to_seed_neighborhood(clean_db: Session) -> None:
+    """`trending=true` keeps only entities that ever passed the gate or are breakout/accelerating,
+    plus their direct neighbors — an edge between two non-seed entities should disappear entirely,
+    while a seed's neighbor stays visible (tagged seed=False) so the connection is still
+    readable."""
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    hub = _entity(session, "hub-repo", created=t0, category="agent-framework")
+    neighbor = _entity(session, "neighbor-repo", created=t0, category="agent-framework")
+    orphan = _entity(session, "orphan-repo", created=t0, category="agent-framework")
+    orphan2 = _entity(session, "orphan2-repo", created=t0, category="agent-framework")
+    gated = _entity(session, "gated-repo", created=t0, category="agent-framework")
+    gated_neighbor = _entity(session, "gated-neighbor-repo", created=t0, category="agent-framework")
+
+    _momentum(session, hub, t0, "breakout", 0.9)
+    _momentum(session, neighbor, t0, "dormant", 0.1)
+    _momentum(session, orphan, t0, "dormant", 0.1)
+    _momentum(session, orphan2, t0, "dormant", 0.1)
+    _momentum(session, gated, t0, "dormant", 0.05)
+    _momentum(session, gated_neighbor, t0, "dormant", 0.05)
+
+    def _edge(src: int, dst: int) -> None:
+        session.execute(
+            text(
+                "INSERT INTO entity_graph_edges (src_entity_id, dst_entity_id, edge_type, weight)"
+                " VALUES (:s, :d, 'cited', 1.0)"
+            ),
+            {"s": src, "d": dst},
+        )
+
+    _edge(hub, neighbor)
+    _edge(orphan, orphan2)
+    _edge(gated, gated_neighbor)
+    session.execute(
+        text(
+            "INSERT INTO gate_decisions (entity_id, week, decision, score, components)"
+            " VALUES (:e, '2026-07-06', 'pass', 0.5, CAST('{}' AS JSONB))"
+        ),
+        {"e": gated},
+    )
+    session.flush()
+
+    client = _client(session)
+    full = client.get("/graph").json()
+    names_full = {n["label"] for n in full["nodes"]}
+    assert names_full == {
+        "hub-repo", "neighbor-repo", "orphan-repo", "orphan2-repo", "gated-repo",
+        "gated-neighbor-repo",
+    }
+
+    trending = client.get("/graph", params={"trending": "true"}).json()
+    names_trending = {n["label"] for n in trending["nodes"]}
+    assert names_trending == {"hub-repo", "neighbor-repo", "gated-repo", "gated-neighbor-repo"}
+
+    seed_map = {n["label"]: n["seed"] for n in trending["nodes"]}
+    assert seed_map["hub-repo"] is True
+    assert seed_map["neighbor-repo"] is False
+    assert seed_map["gated-repo"] is True
+    assert seed_map["gated-neighbor-repo"] is False

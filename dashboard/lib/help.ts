@@ -311,6 +311,7 @@ export const HELP: Record<string, HelpContent> = {
           { term: "Coloured circle", desc: "A tracked entity, coloured by its category." },
           { term: "Grey circle", desc: "A concept an LLM pass named (e.g. \"Claude Code\", \"MCP\") that isn't itself a tracked entity — it only exists here because something was compared to it." },
           { term: "Size", desc: "Bigger = more connections. A large node is a hub worth understanding first." },
+          { term: "🔥 prefix", desc: "A trending node — it ever passed the significance gate or is currently breakout/accelerating. Same signal as the Radar's Gated pill and 🔥 Taking off strip." },
         ],
       },
     ],
@@ -318,6 +319,7 @@ export const HELP: Record<string, HelpContent> = {
       "This graph is a one-time snapshot (see GRAPH_PLAN.md) — it does not update itself as new entities are tracked.",
       "Click a node for its connection count and, for a tracked entity, a link to its full dossier.",
       "A purple-only cluster with no teal edges at all is the most interesting case: a correlation no rule could ever have found.",
+      "🔥 Trending only prunes the graph to gated/breakout entities plus their direct neighbors — use it when the full graph is too dense to read; long-tail nodes with no earned signal (e.g. a citation-only paper stub) disappear unless they sit next to something that matters.",
     ],
   },
 };
