@@ -222,6 +222,24 @@ class ImpactBrief(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EntityCommunityResearch(Base):
+    __tablename__ = "entity_community_research"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    query_set: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    model: Mapped[str | None] = mapped_column(Text)
+    researched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class BriefScore(Base):
     __tablename__ = "brief_scores"
 
@@ -367,7 +385,7 @@ class CouncilVerdict(Base):
 
 
 class ContentSanityCheck(Base):
-    """One content-quality verdict on a freshly-collected raw event (migration 0011).
+    """One content-quality verdict on a freshly-collected raw event (migration 0012).
 
     Collectors record; they never interpret (doc 03 §1) — this is a separate checkpoint layer, run
     after collection, that judges whether a raw event's free text (README, model card, launch page,

@@ -132,6 +132,34 @@ class RelatedEntity(BaseModel):
     confidence_score: float
 
 
+class CommunityThread(BaseModel):
+    title: str
+    source: str = ""  # github | hn | hf
+    channel: str = ""  # "GitHub Issues", "Hacker News", "HF Discussions"
+    url: str
+    score: int | None = None
+    comment_count: int | None = None
+    created_at: datetime | None = None
+    relevance_score: float | None = None
+    comments: list[str] = []  # the actual discussion text collected from the thread
+
+
+class CommunityResearch(BaseModel):
+    source: str  # github | hf | hn | summary (the cross-source AI verdict)
+    status: str
+    summary: str
+    sentiment: str | None = None
+    sentiment_score: int | None = None  # 0-100, set on the 'summary' verdict row
+    confidence: str | None = None
+    main_points: list[str] = []
+    concerns: list[str] = []
+    positive_signals: list[str] = []
+    notable_quotes: list[str] = []  # representative comments, on the 'summary' verdict row
+    kpis: dict[str, Any] | None = None  # {sources, thread_count, comment_count}, verdict row
+    threads: list[CommunityThread] = []
+    researched_at: datetime
+
+
 class EntityDossier(BaseModel):
     """The full `/entity/[id]` view (doc 10 §2)."""
 
@@ -154,6 +182,7 @@ class EntityDossier(BaseModel):
     momentum_history: list[MomentumPoint]
     evidence: list[EvidenceItem]  # sources you can open and read
     related: list[RelatedEntity] = []  # entity_semantic_edges neighbors, highest confidence first
+    community: list[CommunityResearch] = []  # latest community-opinion analysis per source
     card: Card | None
     card_versions: list[int]
 

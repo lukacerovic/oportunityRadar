@@ -321,6 +321,7 @@ def dossier(
     metrics = _metric_series(session, canonical, as_of)
     card, versions = _card(session, canonical, as_of)
     evidence = _evidence(session, canonical, as_of)
+    community = _community(session, canonical, as_of)
     themes = [
         r[0]
         for r in session.execute(
@@ -356,9 +357,75 @@ def dossier(
         momentum_history=history,
         evidence=evidence,
         related=_related(session, canonical),
+        community=community,
         card=card,
         card_versions=versions,
     )
+
+
+def _community(session: Session, canonical: int, as_of: datetime) -> list[m.CommunityResearch]:
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT DISTINCT ON (source) source, status, result, model, researched_at
+                FROM entity_community_research
+                WHERE entity_id = :id AND researched_at <= :as_of
+                ORDER BY source, researched_at DESC, id DESC
+                """
+            ),
+            {"id": canonical, "as_of": as_of},
+        )
+        .mappings()
+        .all()
+    )
+    out: list[m.CommunityResearch] = []
+    for row in rows:
+        result = row["result"] or {}
+        threads = [
+            m.CommunityThread(
+                title=t.get("title") or "",
+                source=t.get("source") or "",
+                # "channel" is the generalized "where"; fall back to legacy "subreddit" rows.
+                channel=t.get("channel") or t.get("subreddit") or "",
+                url=t.get("url") or "",
+                score=t.get("score"),
+                comment_count=t.get("comment_count"),
+                created_at=_dt_or_none(t.get("created_at")),
+                relevance_score=t.get("relevance_score"),
+                comments=t.get("comments") or [],
+            )
+            for t in result.get("threads", [])
+        ]
+        out.append(
+            m.CommunityResearch(
+                source=row["source"],
+                status=row["status"],
+                summary=result.get("summary")
+                or "Community research has not produced a summary for this source.",
+                sentiment=result.get("sentiment"),
+                sentiment_score=result.get("sentiment_score"),
+                confidence=result.get("confidence"),
+                main_points=result.get("main_points") or [],
+                concerns=result.get("concerns") or [],
+                positive_signals=result.get("positive_signals") or [],
+                notable_quotes=result.get("notable_quotes") or [],
+                kpis=result.get("kpis"),
+                threads=threads,
+                researched_at=row["researched_at"],
+            )
+        )
+    return out
+
+
+def _dt_or_none(value: Any) -> datetime | None:
+    if value is None or isinstance(value, datetime):
+        return value
+    try:
+        dt = datetime.fromisoformat(str(value))
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 def _evidence(session: Session, canonical: int, as_of: datetime) -> list[m.EvidenceItem]:
@@ -391,7 +458,9 @@ def _evidence(session: Session, canonical: int, as_of: datetime) -> list[m.Evide
     return items[:20]
 
 
-def _evidence_item(source: str, event_type: str, occurred_at: datetime, p: dict) -> m.EvidenceItem:
+def _evidence_item(
+    source: str, event_type: str, occurred_at: datetime, p: dict[str, Any]
+) -> m.EvidenceItem:
     def _int(x: Any) -> int | None:
         try:
             return int(x) if x is not None else None

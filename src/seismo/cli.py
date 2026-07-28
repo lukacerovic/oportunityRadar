@@ -641,6 +641,95 @@ def hindcast(
         raise typer.Exit(code=1)
 
 
+@app.command(name="community-research")
+def community_research(
+    source: str = typer.Option(
+        "all",
+        help="github | hf | hn | summary (AI cross-source verdict) | all (collect then summarize).",
+    ),
+    as_of: str = typer.Option(None, help="ISO date; default now."),
+    limit: int = typer.Option(None, help="Max entities to research this run."),
+    entity_id: int = typer.Option(None, help="Research one entity for debugging."),
+    force: bool = typer.Option(False, "--force", help="Ignore refresh cadence."),
+    redo_before: str = typer.Option(
+        None,
+        "--redo-before",
+        help=(
+            "summary only: re-summarize entities whose newest verdict predates this ISO "
+            "timestamp. Use this (not --force) to redo the backlog in --limit batches — it "
+            "terminates, and keeps the append-only verdict history."
+        ),
+    ),
+    concurrency: int = typer.Option(
+        1, "--concurrency", help="summary only: parallel LLM calls (the loop is network-bound)."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print selected targets and queries; do not call any source."
+    ),
+    no_summarize: bool = typer.Option(
+        False, "--no-summarize", help="Search/fetch only; skip comment fetch for API testing."
+    ),
+) -> None:
+    """Community enrichment (doc 15): find what the community says about existing entities.
+
+    Sources are GitHub (issues + discussions), Hugging Face (model discussions), and Hacker News
+    (relevance search). Each is researched independently on its own per-source cadence; ``all``
+    runs every source. This never re-collects what the item collectors already gather."""
+    from seismo.community.runner import run_community_research
+    from seismo.community.sources import SUMMARY_STEP, resolve_sources
+    from seismo.community.verdict import FORCE_LIMIT_ERROR, run_community_synthesis
+    from seismo.db import session_scope
+
+    when = _parse_as_of(as_of)
+    redo_cutoff = _parse_as_of(redo_before) if redo_before else None
+    unsafe_force = force and limit is not None and entity_id is None
+    if unsafe_force and SUMMARY_STEP in resolve_sources(source):
+        raise typer.BadParameter(FORCE_LIMIT_ERROR)
+    for src in resolve_sources(source):
+        with record_pipeline_run(f"community-research:{src}", when):
+            # The cross-source verdict reads what the collectors wrote; it has no external client.
+            if src == SUMMARY_STEP:
+                if dry_run:
+                    typer.echo("[community-research] source=summary dry_run=true (no synthesis)")
+                    continue
+                with session_scope() as session:
+                    sstats = run_community_synthesis(
+                        session,
+                        as_of=when,
+                        limit=limit,
+                        entity_id=entity_id,
+                        force=force,
+                        redo_before=redo_cutoff,
+                        concurrency=concurrency,
+                        # The paid path finally respects the configured ceiling (it never did).
+                        budget_usd=settings.llm_budget_usd,
+                        checkpoint=True,  # long paid run: keep what we already paid for
+                    )
+                typer.echo(
+                    f"[community-research] source=summary as_of={when.date()} — {sstats.as_note()}"
+                )
+                continue
+            with session_scope() as session:
+                stats = run_community_research(
+                    session,
+                    source=src,
+                    as_of=when,
+                    limit=limit,
+                    entity_id=entity_id,
+                    force=force,
+                    dry_run=dry_run,
+                    no_summarize=no_summarize,
+                )
+            typer.echo(
+                f"[community-research] source={src} as_of={when.date()} — {stats.as_note()}"
+            )
+            if dry_run and stats.dry_targets:
+                for target, queries in stats.dry_targets[:20]:
+                    typer.echo(f"  {target.entity_id} {target.canonical_name} ({target.state})")
+                    for query in queries:
+                        typer.echo(f"    - {query}")
+
+
 # --- health -----------------------------------------------------------------
 
 

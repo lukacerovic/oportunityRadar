@@ -118,6 +118,41 @@ export interface EntityDossier {
   related: RelatedEntity[];
   card: Card | null;
   card_versions: number[];
+  community: CommunityResearch[];
+}
+
+export interface CommunityThread {
+  title: string;
+  source: string; // github | hn | hf
+  channel: string; // "GitHub Issues", "Hacker News", "HF Discussions"
+  url: string;
+  score: number | null;
+  comment_count: number | null;
+  created_at: string | null;
+  relevance_score: number | null;
+  comments: string[];
+}
+
+export interface CommunityKpis {
+  sources: string[];
+  thread_count: number;
+  comment_count: number;
+}
+
+export interface CommunityResearch {
+  source: string; // github | hf | hn | summary (cross-source AI verdict)
+  status: string; // found | not_found | failed
+  summary: string;
+  sentiment: string | null;
+  sentiment_score: number | null; // 0-100, on the 'summary' verdict
+  confidence: string | null;
+  main_points: string[];
+  concerns: string[];
+  positive_signals: string[];
+  notable_quotes: string[]; // on the 'summary' verdict
+  kpis: CommunityKpis | null; // on the 'summary' verdict
+  threads: CommunityThread[];
+  researched_at: string;
 }
 
 export interface MiniEntity {
