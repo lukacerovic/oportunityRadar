@@ -4,14 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import {
-  SigmaContainer,
-  useLoadGraph,
-  useSigma,
-  useRegisterEvents,
-  useSetSettings,
-  useCamera,
-} from "@react-sigma/core";
+import { SigmaContainer, useLoadGraph, useSigma, useRegisterEvents } from "@react-sigma/core";
 import { drawDiscNodeHover } from "sigma/rendering";
 import type { Settings } from "sigma/settings";
 import "@react-sigma/core/lib/style.css";
@@ -52,6 +45,28 @@ const EDGE_FAMILY: Record<string, string> = {
   subsidiary_of: OWNERSHIP_COLOR,
   invested_in: OWNERSHIP_COLOR,
 };
+
+// MUST be a stable module-level object: an inline settings prop makes SigmaContainer rebuild
+// the sigma instance on every parent re-render (each search keystroke!), which crashes with
+// "could not find a suitable program for node type" mid-rebuild.
+const SIGMA_SETTINGS = {
+  renderLabels: true,
+  labelColor: { color: "#E2E8F0" },
+  labelSize: 11,
+  // Labels only for nodes that render reasonably large (hubs); leaf contributors get
+  // theirs on zoom-in. Cuts label draw cost ~10x on team-heavy views.
+  labelRenderedSizeThreshold: 7,
+  hideEdgesOnMove: true,
+  // The hover bubble is white, so the light canvas label color is unreadable there —
+  // re-draw hover labels in dark slate.
+  defaultDrawNodeHover: ((ctx, data, settings) =>
+    drawDiscNodeHover(ctx, data, {
+      ...settings,
+      labelColor: { color: "#0F172A" },
+    } as Settings)) as Settings["defaultDrawNodeHover"],
+  defaultNodeColor: "#64748B",
+  defaultEdgeColor: "#334155",
+} as Partial<Settings>;
 
 function edgeColor(kind: GraphEdge["kind"], relations: string[]): string {
   if (kind === "reasoned") return REASONED_COLOR;
@@ -168,125 +183,6 @@ function GraphEvents({ onSelect }: { onSelect: (nodeId: string | null) => void }
   return null;
 }
 
-// Registers sigma node/edge reducers so search filters the render without touching the
-// underlying graphology instance — clearing the query restores the identity reducers.
-function SearchController({
-  keepIds,
-  matchIds,
-  focusId,
-}: {
-  keepIds: Set<string> | null;
-  matchIds: Set<string>;
-  focusId: string | null;
-}) {
-  const sigma = useSigma();
-  const setSettings = useSetSettings();
-  const { gotoNode } = useCamera({ duration: 400 });
-
-  useEffect(() => {
-    if (!keepIds) {
-      setSettings({
-        nodeReducer: (_node, data) => data,
-        edgeReducer: (_edge, data) => data,
-      });
-      return;
-    }
-    const graph = sigma.getGraph();
-    setSettings({
-      nodeReducer: (node, data) => {
-        if (matchIds.has(node)) return { ...data, highlighted: true, zIndex: 1 };
-        if (keepIds.has(node)) return data;
-        return { ...data, hidden: true, label: "" };
-      },
-      edgeReducer: (edge, data) => {
-        const [source, target] = graph.extremities(edge);
-        return keepIds.has(source) && keepIds.has(target) ? data : { ...data, hidden: true };
-      },
-    });
-  }, [keepIds, matchIds, sigma, setSettings]);
-
-  useEffect(() => {
-    if (focusId) gotoNode(focusId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId]);
-
-  return null;
-}
-
-function GraphSearchBox({
-  nodes,
-  onSelect,
-  query,
-  setQuery,
-  matchCount,
-}: {
-  nodes: GraphNode[];
-  onSelect: (id: string) => void;
-  query: string;
-  setQuery: (q: string) => void;
-  matchCount: number | null;
-}) {
-  const [focused, setFocused] = useState(false);
-  const q = query.trim().toLowerCase();
-  const suggestions = q
-    ? nodes.filter((n) => n.label.toLowerCase().includes(q)).slice(0, 8)
-    : [];
-
-  return (
-    <div className="absolute left-4 top-4 w-72">
-      <div className="relative">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder="Search entities…"
-          className="w-full rounded-lg border border-border bg-surface/95 px-3 py-2 text-sm text-text placeholder:text-faint backdrop-blur focus:outline-none focus:ring-1 focus:ring-accent"
-        />
-        {query && (
-          <button
-            onClick={() => setQuery("")}
-            aria-label="Clear search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-faint hover:text-text"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
-      {query && (
-        <div className="mt-1 text-[11px] text-muted">
-          {matchCount === null
-            ? null
-            : matchCount === 0
-              ? "No matches"
-              : `Showing ${matchCount} node${matchCount === 1 ? "" : "s"} (matches + direct connections)`}
-        </div>
-      )}
-
-      {focused && suggestions.length > 0 && (
-        <div className="mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-surface/95 shadow-lg backdrop-blur">
-          {suggestions.map((n) => (
-            <button
-              key={n.id}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setQuery(n.label);
-                onSelect(n.id);
-              }}
-              className="block w-full truncate px-3 py-1.5 text-left text-xs text-text hover:bg-card-hover"
-            >
-              {n.label}
-              {n.category && <span className="ml-1.5 text-faint">· {titleize(n.category)}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[] }) | null; onClose: () => void }) {
   const router = useRouter();
   if (!node) return null;
@@ -372,8 +268,6 @@ function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[]
 
 export function GraphView({ data }: { data: GraphResponse }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [focusId, setFocusId] = useState<string | null>(null);
 
   const nodeIndex = useMemo(() => new Map(data.nodes.map((n) => [n.id, n])), [data.nodes]);
   const neighborIndex = useMemo(() => {
@@ -391,59 +285,16 @@ export function GraphView({ data }: { data: GraphResponse }) {
     ? { ...nodeIndex.get(selectedId)!, neighbors: [...(neighborIndex.get(selectedId) ?? [])] }
     : null;
 
-  const { matchIds, keepIds } = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return { matchIds: new Set<string>(), keepIds: null as Set<string> | null };
-    const matchIds = new Set<string>();
-    for (const n of data.nodes) if (n.label.toLowerCase().includes(q)) matchIds.add(n.id);
-    const keepIds = new Set<string>(matchIds);
-    for (const id of matchIds) for (const nb of neighborIndex.get(id) ?? []) keepIds.add(nb);
-    return { matchIds, keepIds };
-  }, [query, data.nodes, neighborIndex]);
-
-  const handleSelect = (id: string) => {
-    setSelectedId(id);
-    setFocusId(id);
-  };
-
   return (
     <div>
       <div className="relative h-[calc(100vh-11rem)] overflow-hidden rounded-xl border border-border bg-surface">
         <SigmaContainer
           style={{ height: "100%", width: "100%", background: "transparent" }}
-          settings={{
-            renderLabels: true,
-            labelColor: { color: "#E2E8F0" },
-            labelSize: 11,
-            // Labels only for nodes that render reasonably large (hubs); leaf contributors get
-            // theirs on zoom-in. Cuts label draw cost ~10x on team-heavy views.
-            labelRenderedSizeThreshold: 7,
-            hideEdgesOnMove: true,
-            // The hover bubble is white, so the light canvas label color is unreadable there —
-            // re-draw hover labels in dark slate.
-            defaultDrawNodeHover: (ctx, data, settings) =>
-              drawDiscNodeHover(ctx, data, {
-                ...settings,
-                labelColor: { color: "#0F172A" },
-              } as Settings),
-            defaultNodeColor: "#64748B",
-            defaultEdgeColor: "#334155",
-          }}
+          settings={SIGMA_SETTINGS}
         >
           <LoadGraph data={data} />
           <GraphEvents onSelect={setSelectedId} />
-          <SearchController keepIds={keepIds} matchIds={matchIds} focusId={focusId} />
         </SigmaContainer>
-
-        {/* In-view filter (from origin/main): highlights/filters what is already loaded; the
-            page-level ?q= form is the DB-wide search that decides what gets loaded at all. */}
-        <GraphSearchBox
-          nodes={data.nodes}
-          onSelect={handleSelect}
-          query={query}
-          setQuery={setQuery}
-          matchCount={keepIds ? keepIds.size : null}
-        />
 
         <NodePanel node={selected} onClose={() => setSelectedId(null)} />
       </div>

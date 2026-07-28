@@ -54,7 +54,7 @@ export default async function GraphPage({
                 type="search"
                 name="q"
                 defaultValue={q}
-                placeholder="Search entities… (e.g. thinking machines)"
+                placeholder="Search ALL entities… (e.g. thinking machines)"
                 className="w-64 rounded-full border border-border bg-surface px-3 py-1 text-xs text-text placeholder:text-faint focus:border-accent-dim focus:outline-none"
               />
               {q && (
