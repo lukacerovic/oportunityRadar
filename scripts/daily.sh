@@ -92,6 +92,12 @@ run "sanity" uv run seismo sanity --limit "${SANITY_LIMIT:-500}"
 # Graph edges (authored_by/built_by/cited/depends_on + wikidata team edges) — was manual-only;
 # without this the correlation graph silently goes stale as new evidence lands.
 run "derive-edges" uv run seismo derive-edges
+# AI-narrated graph context for the top trending entities. Hash-gated: only entities whose
+# subgraph CHANGED since the stored narration hit the LLM, so steady state is near-free.
+# Uses SEISMO_GRAPH_EXPLAIN_PROVIDER (claude_cli → billed to the Claude Code subscription).
+if [ "${SKIP_EXPLAIN:-0}" != "1" ]; then
+  run "explain-graphs" uv run seismo explain-graphs --limit "${EXPLAIN_LIMIT:-10}"
+fi
 run "snapshot" uv run seismo snapshot
 run "score"    uv run seismo score
 if [ "${SKIP_COMPREHEND:-0}" != "1" ]; then

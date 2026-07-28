@@ -33,6 +33,7 @@ _CLEAR_TABLES = [
     "changes_daily",
     "calibration_snapshots",
     "hindcast_runs",
+    "graph_explanations",
     "entity_graph_edges",
     "entity_semantic_edges",
     "discovery_triage_decisions",

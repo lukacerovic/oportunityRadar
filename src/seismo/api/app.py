@@ -1525,5 +1525,69 @@ def graph(
     return m.GraphResponse(nodes=list(nodes.values()), edges=edges)
 
 
+def _explanation_response(session: Session, entity_id: int) -> m.GraphExplanationResponse:
+    row = session.execute(
+        text(
+            """
+            SELECT ge.content, ge.model, ge.updated_at, ge.subgraph_hash,
+                   ge.node_count, ge.edge_count, e.canonical_name
+            FROM graph_explanations ge JOIN entities e ON e.id = ge.entity_id
+            WHERE ge.entity_id = :id
+            """
+        ),
+        {"id": entity_id},
+    ).first()
+    if row is None:
+        raise HTTPException(404, "no explanation generated for this entity yet")
+    content, model, updated_at, stored_hash, node_count, edge_count, name = row
+    from seismo.graph.explain import build_subgraph
+
+    sub = build_subgraph(session, entity_id)
+    return m.GraphExplanationResponse(
+        entity_id=entity_id,
+        entity_name=name,
+        overview=str(content.get("overview", "")),
+        key_people=str(content.get("key_people", "")),
+        organizations=str(content.get("organizations", "")),
+        industry_context=str(content.get("industry_context", "")),
+        signals=str(content.get("signals", "")),
+        model=model,
+        updated_at=updated_at,
+        node_count=node_count,
+        edge_count=edge_count,
+        stale=bool(sub and sub.edges and sub.hash != stored_hash),
+    )
+
+
+@app.get("/graph/explain", response_model=m.GraphExplanationResponse)
+def graph_explain(
+    entity_id: int = Query(..., description="Focus entity whose subgraph narration to fetch."),
+    session: Session = Depends(get_session),
+) -> m.GraphExplanationResponse:
+    """The stored AI narration for an entity's relationship graph — served instantly; generation
+    happens in the daily ``explain-graphs`` step or via POST (on demand)."""
+    return _explanation_response(session, entity_id)
+
+
+@app.post("/graph/explain", response_model=m.GraphExplanationResponse)
+def graph_explain_generate(
+    entity_id: int = Query(..., description="Focus entity to narrate NOW (synchronous)."),
+    session: Session = Depends(get_session),
+) -> m.GraphExplanationResponse:
+    """Generate (or refresh) one entity's narration on demand. Synchronous — with claude_cli
+    expect ~20-60s; the panel shows a progress state. 422 when the entity has no relationships
+    to narrate."""
+    from seismo.graph.explain import explain_entity
+
+    try:
+        outcome, _cost = explain_entity(session, entity_id)
+    except Exception as exc:  # noqa: BLE001 — surface generation failures as a clean 502
+        raise HTTPException(502, f"explanation generation failed: {exc}") from exc
+    if outcome == "empty":
+        raise HTTPException(422, "this entity has no relationships to narrate yet")
+    session.commit()
+    return _explanation_response(session, entity_id)
+
+
 def _f(value: Any) -> float | None:
     return None if value is None else float(value)

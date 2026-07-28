@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     community_llm_provider: str = ""  # mock | ollama | claude_cli | anthropic; "" = llm_provider
     community_model: str = ""  # provider-specific model id; "" = use model_live / ollama_model
 
+    # Graph explanations (WIKIDATA_ENRICHMENT_PLAN.md follow-up): multi-entity narrative synthesis
+    # ("who are these people, why is OpenAI in this graph") is exactly where the local 3B model is
+    # weakest, so this call site gets its own provider knob like the community summarizer —
+    # ``claude_cli`` bills the Claude Code subscription, "" keeps the global provider (mock in CI).
+    graph_explain_provider: str = ""  # mock | ollama | claude_cli | anthropic; "" = llm_provider
+    graph_explain_model: str = ""  # provider-specific model id; "" = provider default
+
     # --- budgets & thresholds (doc 13 Part C) ---
     briefs_per_week: int = 5
     breakout_callouts_per_day: int = 1

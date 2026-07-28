@@ -70,6 +70,25 @@ class GraphResponse(BaseModel):
     edges: list[GraphEdge]
 
 
+class GraphExplanationResponse(BaseModel):
+    """AI-narrated context for one entity's relationship subgraph (migration 0013) — the
+    dashboard's explanation side panel. ``stale`` means enrichment changed the subgraph since
+    the text was written; the next ``explain-graphs`` run will rewrite it."""
+
+    entity_id: int
+    entity_name: str
+    overview: str
+    key_people: str
+    organizations: str
+    industry_context: str = ""  # broader background, explicitly model knowledge not graph data
+    signals: str
+    model: str
+    updated_at: datetime
+    node_count: int
+    edge_count: int
+    stale: bool = False
+
+
 class RadarResponse(BaseModel):
     as_of: datetime
     count: int

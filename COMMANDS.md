@@ -51,6 +51,9 @@ uv run seismo enrich-wikidata --limit 200              # 3b. team enrichment —
                                                        #     (Wikidata: employers, ex-employers, founders)
 uv run seismo derive-edges                             # 3c. typed graph edges (built_by/cited/authored_by/
                                                        #     employed_by/formerly_at/founded) for the graph page
+uv run seismo explain-graphs --limit 10                # 3d. AI-narrated graph context for top trending
+                                                       #     entities (only regenerates changed subgraphs;
+                                                       #     provider: SEISMO_GRAPH_EXPLAIN_PROVIDER=claude_cli)
 uv run seismo snapshot                                 # 4. rebuild the daily metric table from snapshots
 uv run seismo score                                    # 5. velocity → momentum states (dormant…breakout)
 uv run seismo comprehend                               # 6. AI summary cards for entities crossing the trigger

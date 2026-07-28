@@ -339,7 +339,12 @@ def test_affiliations_from_person_event(clean_db: Session) -> None:
             "claims": {
                 "P108": [
                     {"qid": "QTM", "label": "Thinking Machines Lab"},
-                    {"qid": "QOAI", "label": "OpenAI", "end": "+2020-06-01T00:00:00Z"},
+                    {
+                        "qid": "QOAI",
+                        "label": "OpenAI",
+                        "start": "+2018-00-00T00:00:00Z",
+                        "end": "+2020-06-01T00:00:00Z",
+                    },
                 ],
                 "P69": [{"qid": "QDART", "label": "Dartmouth College"}],
                 "P184": [{"qid": "QADV", "label": "Some Advisor"}],
@@ -377,6 +382,11 @@ def test_affiliations_from_person_event(clean_db: Session) -> None:
     assert [(e["src_entity_id"], e["dst_entity_id"]) for e in current] == [(mira, tm)]
     assert [(e["src_entity_id"], e["dst_entity_id"]) for e in former] == [(mira, oai)]
     assert current[0]["evidence_refs"] == [raw]
+    # P580/P582 qualifiers land on the edge itself (migration 0014); 00-month clamps to Jan.
+    span = session.execute(
+        text("SELECT start_date, end_date FROM entity_graph_edges WHERE edge_type='formerly_at'")
+    ).one()
+    assert str(span[0]) == "2018-01-01" and str(span[1]) == "2020-06-01"
     names = {
         r[0]
         for r in session.execute(
@@ -414,6 +424,7 @@ def test_affiliations_from_org_event_founded(clean_db: Session) -> None:
                 "P1951": [{"qid": "QA16Z", "label": "Andreessen Horowitz"}],
                 "P127": [{"qid": "QOWNER", "label": "Holding Co"}],
                 "P749": [{"qid": "QPARENT", "label": "Parent Group"}],
+                "P1056": [{"qid": "QPROD", "label": "Inkling API"}],
             },
         },
     )
@@ -437,14 +448,62 @@ def test_affiliations_from_org_event_founded(clean_db: Session) -> None:
     assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "subsidiary_of")] == [
         (org, parent)
     ]
+    # P1056: what the org makes, as a first-class work entity.
+    assert stats.produces == 1
+    product = _entity_by_anchor(session, "wikidata", "QPROD")
+    assert product is not None
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "produces")] == [
+        (org, product)
+    ]
     mira = _entity_by_anchor(session, "wikidata", "QMIRA")
     assert mira is not None
-    edges = _edges(session, "founded")
-    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in edges] == [(mira, org)]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "founded")] == [
+        (mira, org)
+    ]
     assert stats.developed_by == 1, "only the handle's own model links, not other orgs' models"
-    dev = _edges(session, "developed_by")
-    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in dev] == [(model, org)]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "developed_by")] == [
+        (model, org)
+    ]
     assert other_model  # tracked but untouched — asserted via the counts above
+
+
+def test_work_event_links_developer_and_tracked_repo(clean_db: Session) -> None:
+    """A work's P178 becomes developed_by → org; P1324 links to a repo we ALREADY track and
+    never mints repos from URLs."""
+    session = clean_db
+    work = _entity(session, "ChatGPT", etype="work", anchors={"wikidata": "QCHATGPT"})
+    repo = _entity(session, "openai/chatgpt", anchors={"github": "openai/chatgpt"})
+    _event(
+        session,
+        work,
+        event_type="wikidata_entity",
+        source="wikidata",
+        payload={
+            "qid": "QCHATGPT",
+            "entity_type": "work",
+            "claims": {
+                "P178": [{"qid": "QOAI", "label": "OpenAI"}],
+                "P1324": [
+                    {"value": "https://github.com/openai/chatgpt"},
+                    {"value": "https://github.com/nobody/untracked-repo"},
+                ],
+            },
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.developed_by == 1 and stats.orgs_created == 1
+    oai = _entity_by_anchor(session, "wikidata", "QOAI")
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "developed_by")] == [
+        (work, oai)
+    ]
+    assert stats.source_repo == 1, "only the tracked repo links; the unknown URL mints nothing"
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "source_repo")] == [
+        (work, repo)
+    ]
+    assert _entity_by_anchor(session, "github", "nobody/untracked-repo") is None
 
 
 # --- idempotency ------------------------------------------------------------

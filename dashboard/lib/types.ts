@@ -351,15 +351,21 @@ export interface GraphNode {
   info: {
     qid?: string;
     description?: string;
+    wiki?: string; // Wikipedia lead paragraph
     positions?: string[]; // "CTO — OpenAI (2022–2024)"
     website?: string;
     inception?: string;
     dissolved?: string;
     employees?: string;
+    revenue?: string;
+    market_cap?: string;
+    twitter?: string;
     headquarters?: string[];
     industry?: string[];
     occupation?: string[];
     awards?: string[];
+    license?: string[]; // works
+    language?: string[]; // works
   } | null;
 }
 
@@ -374,4 +380,20 @@ export interface GraphEdge {
 export interface GraphResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+// AI-narrated context for one entity's relationship subgraph (the ✨ Explain panel).
+export interface GraphExplanation {
+  entity_id: number;
+  entity_name: string;
+  overview: string;
+  key_people: string;
+  organizations: string;
+  industry_context: string; // broader background — explicitly model knowledge, not graph data
+  signals: string;
+  model: string;
+  updated_at: string;
+  node_count: number;
+  edge_count: number;
+  stale: boolean; // subgraph changed since the text was written; next daily run rewrites it
 }

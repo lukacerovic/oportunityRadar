@@ -22,6 +22,9 @@ steps already recorded (it never fetches):
 - ``subsidiary_of`` — org → parent org, from P749 (and P355 inverted); ``owned_by`` — org →
   owner, from P127; ``invested_in`` — backer → org, from P1951 (inverted) — who controls and
   funds the org behind a project.
+- ``developed_by`` (works) — work → org, from a work's P178; ``produces`` — org → work, from
+  P1056; ``source_repo`` — work → repo, from P1324 when the URL maps to a repo we ALREADY track
+  (never mints repos). Employment edges carry ``start_date``/``end_date`` from P580/P582.
 
 ``built_by``/``cited``/``authored_by`` mint the person/paper entity on first sight (anchored
 consistently with the resolver's anchor keys); ``depends_on`` only links packages already tracked.
@@ -69,6 +72,8 @@ class EdgeStats:
     owned_by: int = 0
     invested_in: int = 0
     notable_work: int = 0
+    produces: int = 0
+    source_repo: int = 0
     persons_created: int = 0
     papers_created: int = 0
     orgs_created: int = 0
@@ -83,7 +88,8 @@ class EdgeStats:
             f"developed_by={self.developed_by} educated_at={self.educated_at} "
             f"advised_by={self.advised_by} subsidiary_of={self.subsidiary_of} "
             f"owned_by={self.owned_by} invested_in={self.invested_in} "
-            f"notable_work={self.notable_work} "
+            f"notable_work={self.notable_work} produces={self.produces} "
+            f"source_repo={self.source_repo} "
             f"persons+={self.persons_created} papers+={self.papers_created} "
             f"orgs+={self.orgs_created} works+={self.works_created} "
             f"upserted={self.edges_upserted}"
@@ -117,6 +123,7 @@ def derive_edges(session: Session, as_of: datetime) -> EdgeStats:
         + stats.employed_by + stats.formerly_at + stats.founded + stats.developed_by
         + stats.educated_at + stats.advised_by + stats.subsidiary_of
         + stats.owned_by + stats.invested_in + stats.notable_work
+        + stats.produces + stats.source_repo
     )
     return stats
 
@@ -189,8 +196,28 @@ def _get_or_create(
     return row.id, True
 
 
+def _wd_date(value: Any) -> date | None:
+    """'+2022-05-00T00:00:00Z' → date. Wikidata uses 00 for unknown month/day; clamp to 1."""
+    raw = str(value or "").lstrip("+")[:10]
+    if len(raw) != 10:
+        return None
+    try:
+        year, month, day = (int(p) for p in raw.split("-"))
+        return date(year, max(month, 1), max(day, 1))
+    except ValueError:
+        return None
+
+
 def _upsert_edge(
-    session: Session, src: int, dst: int, edge_type: str, evidence_ref: int, since: date
+    session: Session,
+    src: int,
+    dst: int,
+    edge_type: str,
+    evidence_ref: int,
+    since: date,
+    *,
+    start: date | None = None,
+    end: date | None = None,
 ) -> None:
     stmt = pg_insert(EntityGraphEdge).values(
         src_entity_id=src,
@@ -198,6 +225,8 @@ def _upsert_edge(
         edge_type=edge_type,
         weight=1.0,
         since=since,
+        start_date=start,
+        end_date=end,
         evidence_refs=[evidence_ref],
     )
     stmt = stmt.on_conflict_do_update(
@@ -205,6 +234,8 @@ def _upsert_edge(
         set_={
             "weight": stmt.excluded.weight,
             "evidence_refs": stmt.excluded.evidence_refs,
+            "start_date": stmt.excluded.start_date,
+            "end_date": stmt.excluded.end_date,
             "updated_at": func.now(),
         },
     )
@@ -363,6 +394,7 @@ def _derive_affiliations(
             target_type: str,
             *,
             outgoing: bool,
+            with_dates: bool = False,
             # bound per-iteration via defaults so the closure doesn't lazily capture loop vars
             subject: int = subject,
             occurred: datetime = occurred,
@@ -379,13 +411,17 @@ def _derive_affiliations(
             if other is None or other == subject:
                 return
             src, dst = (subject, other) if outgoing else (other, subject)
-            _upsert_edge(session, src, dst, edge_type, raw_id, occurred.date())
+            _upsert_edge(
+                session, src, dst, edge_type, raw_id, occurred.date(),
+                start=_wd_date(entry.get("start")) if with_dates else None,
+                end=_wd_date(entry.get("end")) if with_dates else None,
+            )
             setattr(stats, edge_type, getattr(stats, edge_type) + 1)
 
         if payload.get("entity_type") == "person":
             for entry in claims.get("P108") or []:
                 edge_type = "formerly_at" if entry.get("end") else "employed_by"
-                link(entry, edge_type, "org", outgoing=True)
+                link(entry, edge_type, "org", outgoing=True, with_dates=True)
             for entry in claims.get("P69") or []:
                 link(entry, "educated_at", "org", outgoing=True)
             for entry in claims.get("P184") or []:  # subject's doctoral advisor
@@ -394,6 +430,26 @@ def _derive_affiliations(
                 link(entry, "advised_by", "person", outgoing=False)
             for entry in claims.get("P800") or []:  # what they are famous for building
                 link(entry, "notable_work", "work", outgoing=True)
+        elif payload.get("entity_type") == "work":
+            for entry in claims.get("P178") or []:  # who builds it — ChatGPT developed_by OpenAI
+                link(entry, "developed_by", "org", outgoing=True)
+            # P1324 source repo: link the work to a repo we ALREADY track (never mint repos
+            # from URLs — an untracked repo is not evidence we can stand behind).
+            for entry in claims.get("P1324") or []:
+                url_anchor = anchor_mod.anchor_from_url(str(entry.get("value") or ""))
+                if url_anchor is None or url_anchor.registry != "github":
+                    continue
+                repo_id = anchor_map.get(url_anchor.key)
+                if repo_id is None:
+                    continue
+                repo = canonical(repo_id)
+                if repo == subject or ("source_repo", url_anchor.key, True) in seen:
+                    continue
+                seen.add(("source_repo", url_anchor.key, True))
+                _upsert_edge(
+                    session, subject, repo, "source_repo", row["raw_id"], occurred.date()
+                )
+                stats.source_repo += 1
         elif payload.get("entity_type") == "org":
             for prop, edge_type in org_props:
                 for entry in claims.get(prop) or []:
@@ -408,6 +464,8 @@ def _derive_affiliations(
                 link(entry, "owned_by", "org", outgoing=True)
             for entry in claims.get("P1951") or []:  # investors point INTO the org
                 link(entry, "invested_in", "org", outgoing=False)
+            for entry in claims.get("P1056") or []:  # what the org makes, independent of people
+                link(entry, "produces", "work", outgoing=True)
             # An org resolved from an HF handle owns every tracked model under that handle —
             # the edge that connects the team subgraph to the artifacts people actually browse.
             # The handle comes from the event when the handle path fetched it, else from the

@@ -16,6 +16,12 @@ const GraphView = dynamic(() => import("./GraphView").then((m) => m.GraphView), 
   ),
 });
 
-export function GraphViewLoader({ data }: { data: GraphResponse }) {
-  return <GraphView data={data} />;
+export function GraphViewLoader({
+  data,
+  explainEntityId = null,
+}: {
+  data: GraphResponse;
+  explainEntityId?: number | null;
+}) {
+  return <GraphView data={data} explainEntityId={explainEntityId} />;
 }

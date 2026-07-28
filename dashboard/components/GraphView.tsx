@@ -10,6 +10,7 @@ import type { Settings } from "sigma/settings";
 import "@react-sigma/core/lib/style.css";
 import type { GraphEdge, GraphNode, GraphResponse } from "@/lib/types";
 import { titleize } from "@/lib/format";
+import { ExplainPanel } from "./ExplainPanel";
 
 // Deterministic category -> colour, so the same category always reads the same colour without a
 // hand-maintained palette for ~29 slugs (see identity/vocab.py's category_slugs()).
@@ -41,6 +42,7 @@ const EDGE_FAMILY: Record<string, string> = {
   educated_at: EDUCATION_COLOR,
   advised_by: EDUCATION_COLOR,
   notable_work: WORK_COLOR,
+  produces: WORK_COLOR,
   owned_by: OWNERSHIP_COLOR,
   subsidiary_of: OWNERSHIP_COLOR,
   invested_in: OWNERSHIP_COLOR,
@@ -183,7 +185,15 @@ function GraphEvents({ onSelect }: { onSelect: (nodeId: string | null) => void }
   return null;
 }
 
-function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[] }) | null; onClose: () => void }) {
+function NodePanel({
+  node,
+  onClose,
+  onExplain,
+}: {
+  node: (GraphNode & { neighbors: string[] }) | null;
+  onClose: () => void;
+  onExplain: (entityId: number) => void;
+}) {
   const router = useRouter();
   if (!node) return null;
   return (
@@ -212,8 +222,10 @@ function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[]
           ✕
         </button>
       </div>
-      {node.info?.description && (
-        <p className="mt-2 text-xs text-muted">{node.info.description}</p>
+      {(node.info?.wiki || node.info?.description) && (
+        <p className="mt-2 max-h-32 overflow-y-auto text-xs text-muted">
+          {node.info.wiki || node.info.description}
+        </p>
       )}
       {node.info && (
         <dl className="mt-2 space-y-0.5 text-[11px]">
@@ -226,6 +238,11 @@ function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[]
               ["Founded", node.info.inception],
               ["Dissolved", node.info.dissolved],
               ["Employees", node.info.employees],
+              ["Revenue", node.info.revenue],
+              ["Market cap", node.info.market_cap],
+              ["X", node.info.twitter ? `@${node.info.twitter}` : undefined],
+              ["License", node.info.license?.join(", ")],
+              ["Language", node.info.language?.join(", ")],
               ["Awards", node.info.awards?.join(", ")],
             ] as const
           )
@@ -255,19 +272,35 @@ function NodePanel({ node, onClose }: { node: (GraphNode & { neighbors: string[]
       )}
       <div className="mt-2 text-xs text-faint">{node.neighbors.length} connection(s)</div>
       {node.entity_id != null && (
-        <button
-          onClick={() => router.push(`/entity/${node.entity_id}`)}
-          className="mt-3 w-full rounded-md border border-accent-dim px-3 py-1.5 text-xs text-accent hover:bg-card-hover"
-        >
-          Open entity →
-        </button>
+        <>
+          <button
+            onClick={() => onExplain(node.entity_id!)}
+            className="mt-3 w-full rounded-md border border-accent-dim px-3 py-1.5 text-xs text-accent hover:bg-card-hover"
+          >
+            ✨ Explain this graph
+          </button>
+          <button
+            onClick={() => router.push(`/entity/${node.entity_id}`)}
+            className="mt-2 w-full rounded-md border border-accent-dim px-3 py-1.5 text-xs text-accent hover:bg-card-hover"
+          >
+            Open entity →
+          </button>
+        </>
       )}
     </div>
   );
 }
 
-export function GraphView({ data }: { data: GraphResponse }) {
+export function GraphView({
+  data,
+  explainEntityId = null,
+}: {
+  data: GraphResponse;
+  // Auto-open the ✨ explanation panel for this entity (the page passes the best search match).
+  explainEntityId?: number | null;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [explainId, setExplainId] = useState<number | null>(explainEntityId);
 
   const nodeIndex = useMemo(() => new Map(data.nodes.map((n) => [n.id, n])), [data.nodes]);
   const neighborIndex = useMemo(() => {
@@ -296,7 +329,14 @@ export function GraphView({ data }: { data: GraphResponse }) {
           <GraphEvents onSelect={setSelectedId} />
         </SigmaContainer>
 
-        <NodePanel node={selected} onClose={() => setSelectedId(null)} />
+        <NodePanel
+          node={selected}
+          onClose={() => setSelectedId(null)}
+          onExplain={setExplainId}
+        />
+        {explainId != null && (
+          <ExplainPanel entityId={explainId} onClose={() => setExplainId(null)} />
+        )}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1 text-[11px]">

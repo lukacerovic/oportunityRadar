@@ -82,6 +82,10 @@ passing entities once momentum accrues.
   ```bash
   uv run seismo enrich-wikidata --limit 200   # then: seismo resolve && seismo derive-edges
   ```
+- **Explain one entity's graph now** (instead of waiting for the daily batch; ✨ panel data):
+  ```bash
+  uv run seismo explain-graphs --entity-id 1234   # or --limit 20 for the top-trending batch
+  ```
 - **Health check** anytime:
   ```bash
   uv run seismo doctor
