@@ -6,7 +6,14 @@
 
 **This session shipped:** **Stage 8 — Memory & Synthesis (doc 09).** Deterministic **Changes view** (`memory/changes.py` → `changes_daily`, templated diffs, no LLM), automated **momentum calibration** (`memory/calibration.py` → `calibration_snapshots`: breakout-survival + fade-reaccel), and **brief forward-scoring** (`memory/scoring.py`: assembler + **A-7 auto-evaluation** of `system` observables + `record_score`). Migration 0005, `seismo changes`/`seismo calibrate` CLI (+`changes` in `daily.sh`), API (`/changes/{day}`, `/calibration`, `/briefs/{id}/score-packet`, `/briefs/{id}/score`), dashboard `/changes/[day]` + a scoring panel on published briefs. 9 `test_memory.py` + `test_api.py` +1. Also shipped **Stage 7** earlier this session (§20). Full Stage-8 narrative in **§21**.
 
-**IMMEDIATE next task (2026-07-25, see §32):** the `pts/dl` unit-label bug is fixed, and council review is shipped with 15 hand-authored real verdicts (not mock placeholders) across 5 entities — see `/brief/3246`, `/brief/3314`. Read **`GRAPH_PLAN.md`** before touching `entity_semantic_edges` or `graphify-out/` again — it's the concrete, ungated plan for the 3 places the graph would actually pay off (related-entities panel, brief-pack crowding signal, council cross-checking), written specifically so this doesn't get re-derived from scratch. Still the top item otherwise: the **card-quality audit check** — 671 qwen-authored cards live with no review flag; the qwen-vs-Fable comparison (§31) shows the exact overclaiming failure mode the new council's `evidence_auditor` role was built to catch (§32) — could pair them. Also open: `llm.py` provenance bug (§30), Reddit OAuth (§30), a small watchlist page for the council's top-N-by-momentum population.
+**IMMEDIATE next task (2026-07-27, see §33):** check the result of the overnight full `pytest -q`
+run before doing anything else — it was still in progress at the 2026-07-26 stop point. If it's
+clean, the sanity layer + conftest fix are ready to commit (not yet committed, not yet requested).
+Then decide the comprehend path: 48 momentum-triggered + 9,861 backlog cards need either Ollama
+installed locally or an Anthropic API key — `claude_cli` is confirmed unviable (broken with
+`--bare`, too expensive without it). Full detail in §33.
+
+**Prior next task (2026-07-25, see §32):** the `pts/dl` unit-label bug is fixed, and council review is shipped with 15 hand-authored real verdicts (not mock placeholders) across 5 entities — see `/brief/3246`, `/brief/3314`. Read **`GRAPH_PLAN.md`** before touching `entity_semantic_edges` or `graphify-out/` again — it's the concrete, ungated plan for the 3 places the graph would actually pay off (related-entities panel, brief-pack crowding signal, council cross-checking), written specifically so this doesn't get re-derived from scratch. Still the top item otherwise: the **card-quality audit check** — 671 qwen-authored cards live with no review flag; the qwen-vs-Fable comparison (§31) shows the exact overclaiming failure mode the new council's `evidence_auditor` role was built to catch (§32) — could pair them. Also open: `llm.py` provenance bug (§30), Reddit OAuth (§30), a small watchlist page for the council's top-N-by-momentum population.
 **To resume:** "Read HANDOFF.md (esp. §32, then §31, then §30)." Standing rules: `briefs/` and `graphify-out/` are **derived and gitignored** — regenerate, never commit; any new table with an `entities` FK (or now `impact_briefs` FK) must be added to `_TABLES` in `tests/conftest.py`, **before** the table it references, or the suite breaks (bit twice this session); and a `GroupedList`/similar client component called from a server page component needs a thin `"use client"` wrapper owning the closures — passing functions directly across that boundary 500s. Note: §29→§30 has an undocumented gap — PyPI collector, entity-graph edges, hype-gap trajectory signal, and discovery triage all shipped in between (see git log / migrations 0007–0008) but were never logged section-by-section.
 
 ---
@@ -1079,3 +1086,85 @@ checking its own work. Built a genuinely independent second layer:
 everything else from §31 (card-quality audit check is still the top item); consider whether
 `council`'s momentum-based top-N should also expose a small "watchlist" dashboard page listing
 who's currently in it, since right now the only way to see the population is the CLI query itself.
+
+## 33. SESSION LOG (2026-07-26) — sanity checkpoint shipped + backlog cleared by hand, fresh scrape, conftest FK-gap fixed
+
+User asked for three things at once: a fresh scrape to strengthen the app, a new **sanity layer**
+that judges scraped content quality on every run and cleans it up, and to resume a scrape that had
+been interrupted by an earlier computer reset. Explicitly delegated the Sonnet-vs-Haiku token-spend
+call ("ti proceni").
+
+**Sanity checkpoint already existed, uncommitted, from before the reset** — `migrations/0011_
+content_sanity_checks.py`, `checkpoints/sanity.py`, `checkpoints/contracts.py` (+`ContentSanityItem`
+/`ContentSanityBatch`, verdict ok/flagged/reject), wired into `scripts/daily.sh` (`run "sanity" uv
+run seismo sanity --limit 500`, between `enrich` and `snapshot`). Reviewed and used, not rewritten.
+It's an append-only judgment layer over freshly-collected README/model-card/launch/discussion/
+abstract text (repo_readme, model_readme, launch_page, hn_discussion, paper_published event types)
+— never mutates `raw_events`.
+
+**`claude_cli` LLM provider — the original plan — confirmed unviable here, two separate ways:**
+`--bare` skips the keychain read → "Not logged in"; without `--bare`, one trivial verdict cost
+$0.0728 / 17.9s / 5 tool-use turns, because each call reloads full session context. Neither is
+usable for a batch of thousands.
+
+**User redirected mid-session:** do the judgment myself, as the agent, reading the actual content
+and writing straight into the DB through the *same* `_store()` functions the automated checkpoint
+would call — no subprocess, no API. Tagged `model="claude-agent-interactive:sonnet-5"`,
+`cost_usd=Decimal(0)`. This pattern (dump candidates → I read + write JSONL verdicts → validate via
+the Pydantic contract → store via the checkpoint's own `_store()`) is reusable for any checkpoint
+when a real LLM provider isn't available/affordable — scratch scripts that did this for sanity are
+in this session's scratchpad, not committed (they were one-shot tools, not app code).
+
+**Result: sanity backlog fully cleared** — 3,105 candidates judged (3,060 ok / 19 flagged / 26
+rejected), including two real GitHub spam campaigns caught and flagged, not synthetic test cases.
+**Comprehend cards deliberately NOT done this way** — 48 momentum-triggered + 9,861 backlog
+candidates is too large to hand-author credibly in one session; the same dump/store scaffolding was
+built (`dump_comprehend_batch.py`/`store_comprehend_batch.py`, mirrors the sanity pair, pulls
+`checkpoints/comprehend.py::select_candidates`/`select_backlog` + `checkpoints/evidence.py::
+build_evidence_pack` for `category_disputed`) but never run. **Real next step for comprehend is
+Ollama installed locally** (free) or an Anthropic API key — `claude_cli` is ruled out at this
+volume regardless of model choice.
+
+**Real bug fixed: `tests/conftest.py` `_CLEAR_TABLES` never got `content_sanity_checks`** (new
+table, FK→`raw_events`) when the migration landed — broke `clean_db` for any test that deletes
+`raw_events`. Fixed by inserting it before `entities`/`raw_events`. This is the **third** time a new
+`entities`/`raw_events`/`impact_briefs`-referencing table has broken this list (see §31, §32) —
+next new table with any of those FKs, check `_CLEAR_TABLES` ordering first, don't wait to get bit.
+
+**Fresh scrape ran clean end-to-end:** collect (github/hn/hf/openrouter/arxiv — arxiv hit one
+`ReadTimeout` on the combined `--source all` run, retried alone, clean) → track (github+hf) →
+resolve → enrich (launches/hn/readmes/hf), all OK on the first or retried pass.
+
+**Real DB lock contention, not a logic bug:** running my own full `pytest -q` suite concurrently
+with the scrape's `resolve-enrich`/`snapshot`/`score` steps caused a genuine `DeadlockDetected`
+(pytest's `entities`/`raw_events` DELETE vs. the scrape's writes) and cascading step failures.
+**Lesson: never run the test suite and the scrape pipeline against the same DB at the same time** —
+serialize them. After serializing, re-ran the failed steps cleanly:
+- `resolve`: attached=329 created=0 merges=4 categories=163
+- `snapshot`: entities=18146 rows=389267
+- `score`: breakout=54 accelerating=356 promotions=1169
+- `gate --week 2026-07-20`: candidates=878 pass=5 suppressed(budget=63 unmapped=334 pending=476)
+- `changes`: new=538 promo=286 pub=0
+
+**State at stop, 2026-07-27 00:46 CEST:** DB is consistent, nothing mid-write. A final full
+`uv run pytest -q` clean-confirmation run was started with nothing else touching the DB and was
+**still in progress at stop** (confirmed via `pg_stat_activity`: actively executing `DELETE FROM
+raw_events`, not stuck — prior full runs took ~55–60 min). **Check its result first, before
+anything else.** If failures remain that are NOT one of the two already-understood contention
+FK-violation classes (`entity_category_history_entity_id_fkey` / `content_sanity_checks_raw_event_
+id_fkey` during `DELETE FROM entities`/`raw_events`, both caused by a second concurrent DB writer),
+they're real regressions and need investigating — not assumed away as contention.
+
+**Uncommitted, no commit requested yet:** `tests/conftest.py` (FK-gap fix, this session);
+pre-existing-since-the-reset sanity feature files `alembic/versions/0011_content_sanity_checks.py`,
+`src/seismo/checkpoints/sanity.py`, `tests/test_sanity.py`; modified `scripts/daily.sh`,
+`checkpoints/contracts.py`, `checkpoints/llm.py`, `cli.py`, `config.py`, `health.py`, `models.py`
+(sanity wiring, from before the reset). `.env` (gitignored) now has `SEISMO_GITHUB_TOKEN` set and
+`SEISMO_LLM_PROVIDER=mock` / `SEISMO_CLAUDE_CLI_MODEL=haiku`.
+
+**Next session, in order:**
+1. Check the overnight `pytest -q` result — this is the one open question blocking "provably green."
+2. If clean, ask whether to commit the sanity layer + conftest fix.
+3. Decide the comprehend path (Ollama install vs. Anthropic API key) for the 48 + 9,861 backlog.
+4. Comprehend cards and impact briefs for this week's 5 gated entities (`gate --week 2026-07-20`)
+   are still unwritten — blocked on #3.
