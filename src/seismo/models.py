@@ -366,6 +366,32 @@ class CouncilVerdict(Base):
     )
 
 
+class ContentSanityCheck(Base):
+    """One content-quality verdict on a freshly-collected raw event (migration 0011).
+
+    Collectors record; they never interpret (doc 03 §1) — this is a separate checkpoint layer, run
+    after collection, that judges whether a raw event's free text (README, model card, launch page,
+    HN discussion, paper abstract) is legible on-topic content, and may propose ``cleaned_text`` for
+    display. Never mutates ``raw_events`` itself (doc 02 §1: raw events are immutable) — a
+    ``reject`` verdict just means "don't feature this text". ``raw_event_id`` is UNIQUE so a raw
+    event is checked at most once and re-runs only touch newly-collected content."""
+
+    __tablename__ = "content_sanity_checks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    raw_event_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("raw_events.id"), nullable=False, unique=True
+    )
+    verdict: Mapped[str] = mapped_column(Text, nullable=False)  # ok | flagged | reject
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    cleaned_text: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DiscoveryTriageDecision(Base):
     """One triage verdict on a freshly-minted discovery entity (Feature 6, migration 0008).
 
@@ -439,6 +465,7 @@ __all__ = [
     "EntityGraphEdge",
     "EntitySemanticEdge",
     "CouncilVerdict",
+    "ContentSanityCheck",
     "DiscoveryTriageDecision",
     "CollectorRun",
     "PipelineRun",
