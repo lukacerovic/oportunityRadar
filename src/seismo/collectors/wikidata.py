@@ -451,7 +451,10 @@ def select_targets(session: Session, *, limit: int | None = 200) -> list[Wikidat
               AND NOT EXISTS (
                 SELECT 1 FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
                 WHERE l.entity_id = e.id AND r.event_type = 'wikidata_entity')
-            ORDER BY e.id DESC
+            -- GitHub-login persons first: that path matches exactly (P2037), while name search
+            -- mostly skips — and thousands of fresh paper authors are minted DAILY, so plain
+            -- newest-first would starve the login queue forever.
+            ORDER BY (e.attrs->'anchors'->>'github' LIKE 'user:%') DESC NULLS LAST, e.id DESC
             """
             + ("LIMIT :limit" if remaining is not None else "")
         ),
