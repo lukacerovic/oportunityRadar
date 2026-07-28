@@ -83,6 +83,8 @@ if [ "${SKIP_ENRICH:-0}" != "1" ]; then
   # Team enrichment (WIKIDATA_ENRICHMENT_PLAN.md): who is behind each paper/repo/model —
   # employer history, founders. Un-enriched entities only, so coverage completes over days.
   run "enrich-wikidata" uv run seismo enrich-wikidata --limit "${WIKIDATA_LIMIT:-200}"
+  # PyPI metadata: requires_dist feeds the depends_on graph edges (un-enriched packages only).
+  run "enrich-pypi"     uv run seismo enrich-pypi --limit "${PYPI_LIMIT:-200}"
   run "resolve-enrich"  uv run seismo resolve
 fi
 # Content-sanity checkpoint: judges today's freshly-collected README/model-card/launch/discussion/
