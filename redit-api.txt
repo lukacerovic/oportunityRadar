@@ -1,0 +1,48 @@
+You get them from Reddit’s app preferences page.
+
+  Steps:
+
+  1. Log in to Reddit.
+  2. Open:
+     https://www.reddit.com/prefs/apps
+
+  3. Scroll to the bottom and click:
+     “are you a developer? create an app...”
+
+  4. Fill the form:
+      - name: OpportunityRadar or Seismograph
+      - type: choose script
+      - description: optional
+      - about url: optional
+      - redirect uri: use something like:
+
+        http://localhost:8080
+
+  5. Click create app.
+  6. After it is created:
+      - SEISMO_REDDIT_CLIENT_ID is the small string shown under the app name / near personal use script
+      - SEISMO_REDDIT_CLIENT_SECRET is the field labeled secret
+
+  Then add this to your .env:
+
+  SEISMO_REDDIT_CLIENT_ID=your_client_id
+  SEISMO_REDDIT_CLIENT_SECRET=your_secret
+  SEISMO_REDDIT_USER_AGENT=OpportunityRadar/0.1 by u/your_reddit_username
+
+  After that, test with:
+
+  uv run seismo community-research --source reddit --limit 5
+
+  Important: keep the secret private. Do not commit .env.
+
+  Reddit’s current help page says OAuth client IDs are still created through reddit.com/prefs/apps, and Reddit notes that
+  API usage is subject to their Developer/Data API terms. Sources: Reddit Help OAuth Client ID request
+  (https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=28111115147668), Reddit Data API Wiki
+  (https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki).
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ 
+› Find and fix a bug in @filename
+ 
+  gpt-5.5 default · ~/Desktop/OportunityRadar

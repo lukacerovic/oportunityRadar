@@ -216,6 +216,237 @@ def test_depends_on_links_tracked_only(clean_db: Session) -> None:
     assert _entity_by_anchor(session, "pypi", "some-untracked-pkg") is None
 
 
+# --- authored_by --------------------------------------------------------------
+
+
+def test_authored_by_edges_and_persons_created(clean_db: Session) -> None:
+    session = clean_db
+    paper = _entity(session, "Incling", etype="paper", anchors={"arxiv": "2507.01234"})
+    raw = _event(
+        session,
+        paper,
+        event_type="paper_published",
+        source="arxiv",
+        payload={
+            "arxiv_id": "2507.01234",
+            "title": "Incling",
+            "authors": ["Mira Murati", "John Schulman", "  ", "Mira Murati"],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.authored_by == 2, "blank and duplicate author names are skipped"
+    assert stats.persons_created == 2
+    mira = _entity_by_anchor(session, "person_name", "mira-murati")
+    john = _entity_by_anchor(session, "person_name", "john-schulman")
+    assert mira is not None and john is not None
+    edges = _edges(session, "authored_by")
+    assert len(edges) == 2
+    assert {(e["src_entity_id"], e["dst_entity_id"]) for e in edges} == {
+        (paper, mira),
+        (paper, john),
+    }
+    assert all(e["evidence_refs"] == [raw] for e in edges)
+    # The person keeps the human-readable name, not the slug.
+    name = session.execute(
+        text("SELECT canonical_name FROM entities WHERE id = :i"), {"i": mira}
+    ).scalar_one()
+    assert name == "Mira Murati"
+
+
+def test_authored_by_shared_author_minted_once(clean_db: Session) -> None:
+    session = clean_db
+    paper_a = _entity(session, "Paper A", etype="paper", anchors={"arxiv": "2507.00001"})
+    paper_b = _entity(session, "Paper B", etype="paper", anchors={"arxiv": "2507.00002"})
+    for paper, aid in ((paper_a, "2507.00001"), (paper_b, "2507.00002")):
+        _event(
+            session,
+            paper,
+            event_type="paper_published",
+            source="arxiv",
+            payload={"arxiv_id": aid, "authors": ["Mira Murati"]},
+        )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.authored_by == 2
+    assert stats.persons_created == 1, "same name on two papers mints one person"
+    assert len(_edges(session, "authored_by")) == 2
+
+
+def test_authored_by_is_asof_pure(clean_db: Session) -> None:
+    """A paper event after ``as_of`` must produce no edges and mint no persons."""
+    session = clean_db
+    paper = _entity(session, "Future", etype="paper", anchors={"arxiv": "2508.09999"})
+    _event(
+        session,
+        paper,
+        event_type="paper_published",
+        source="arxiv",
+        occurred=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),  # after AS_OF
+        payload={"arxiv_id": "2508.09999", "authors": ["Mira Murati"]},
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.authored_by == 0
+    assert stats.persons_created == 0
+    assert _edges(session, "authored_by") == []
+
+
+def test_authored_by_rerun_is_idempotent(clean_db: Session) -> None:
+    session = clean_db
+    paper = _entity(session, "Incling", etype="paper", anchors={"arxiv": "2507.01234"})
+    _event(
+        session,
+        paper,
+        event_type="paper_published",
+        source="arxiv",
+        payload={"arxiv_id": "2507.01234", "authors": ["Mira Murati"]},
+    )
+    session.flush()
+
+    derive_edges(session, AS_OF)
+    session.flush()
+    second = derive_edges(session, AS_OF)
+    session.flush()
+
+    assert second.persons_created == 0
+    edges = _edges(session, "authored_by")
+    assert len(edges) == 1
+    assert len(edges[0]["evidence_refs"]) == 1
+
+
+# --- team edges from wikidata claims -----------------------------------------
+
+
+def test_affiliations_from_person_event(clean_db: Session) -> None:
+    """P108 employer claims split on the end-date qualifier; orgs are minted on first sight."""
+    session = clean_db
+    mira = _entity(session, "Mira Murati", etype="person", anchors={"person_name": "mira-murati"})
+    raw = _event(
+        session,
+        mira,
+        event_type="wikidata_entity",
+        source="wikidata",
+        payload={
+            "qid": "QMIRA",
+            "entity_type": "person",
+            "claims": {
+                "P108": [
+                    {"qid": "QTM", "label": "Thinking Machines Lab"},
+                    {"qid": "QOAI", "label": "OpenAI", "end": "+2020-06-01T00:00:00Z"},
+                ],
+                "P69": [{"qid": "QDART", "label": "Dartmouth College"}],
+                "P184": [{"qid": "QADV", "label": "Some Advisor"}],
+                "P800": [{"qid": "QCHATGPT", "label": "ChatGPT"}],
+            },
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.employed_by == 1 and stats.formerly_at == 1
+    assert stats.educated_at == 1 and stats.advised_by == 1
+    assert stats.notable_work == 1 and stats.works_created == 1
+    work = _entity_by_anchor(session, "wikidata", "QCHATGPT")
+    assert work is not None
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "notable_work")] == [
+        (mira, work)
+    ]
+    assert stats.orgs_created == 3  # two employers + the school
+    advisor = _entity_by_anchor(session, "wikidata", "QADV")
+    school = _entity_by_anchor(session, "wikidata", "QDART")
+    assert advisor is not None and school is not None
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "advised_by")] == [
+        (mira, advisor)
+    ]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "educated_at")] == [
+        (mira, school)
+    ]
+    tm = _entity_by_anchor(session, "wikidata", "QTM")
+    oai = _entity_by_anchor(session, "wikidata", "QOAI")
+    assert tm is not None and oai is not None
+    current = _edges(session, "employed_by")
+    former = _edges(session, "formerly_at")
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in current] == [(mira, tm)]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in former] == [(mira, oai)]
+    assert current[0]["evidence_refs"] == [raw]
+    names = {
+        r[0]
+        for r in session.execute(
+            text("SELECT canonical_name FROM entities WHERE entity_type = 'org'")
+        )
+    }
+    assert names == {"Thinking Machines Lab", "OpenAI", "Dartmouth College"}
+
+
+def test_affiliations_from_org_event_founded(clean_db: Session) -> None:
+    """An org's P112 founded-by claim is inverted into person → org ``founded``, and the HF
+    handle it was resolved from links every tracked model under that handle (``developed_by``)."""
+    session = clean_db
+    org = _entity(
+        session, "Thinking Machines Lab", etype="org", anchors={"wikidata": "QTM"}
+    )
+    model = _entity(
+        session, "thinkingmachines/inkling", etype="model",
+        anchors={"hf": "thinkingmachines/inkling"},
+    )
+    other_model = _entity(
+        session, "acme/other", etype="model", anchors={"hf": "acme/other"}
+    )
+    _event(
+        session,
+        org,
+        event_type="wikidata_entity",
+        source="wikidata",
+        payload={
+            "qid": "QTM",
+            "entity_type": "org",
+            "org_handle": "thinkingmachines",
+            "claims": {
+                "P112": [{"qid": "QMIRA", "label": "Mira Murati"}],
+                "P1951": [{"qid": "QA16Z", "label": "Andreessen Horowitz"}],
+                "P127": [{"qid": "QOWNER", "label": "Holding Co"}],
+                "P749": [{"qid": "QPARENT", "label": "Parent Group"}],
+            },
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.founded == 1
+    assert stats.persons_created == 1
+    # Ownership / backing edges, each with the org on the correct side.
+    assert stats.invested_in == 1 and stats.owned_by == 1 and stats.subsidiary_of == 1
+    investor = _entity_by_anchor(session, "wikidata", "QA16Z")
+    owner = _entity_by_anchor(session, "wikidata", "QOWNER")
+    parent = _entity_by_anchor(session, "wikidata", "QPARENT")
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "invested_in")] == [
+        (investor, org)
+    ]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "owned_by")] == [
+        (org, owner)
+    ]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "subsidiary_of")] == [
+        (org, parent)
+    ]
+    mira = _entity_by_anchor(session, "wikidata", "QMIRA")
+    assert mira is not None
+    edges = _edges(session, "founded")
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in edges] == [(mira, org)]
+    assert stats.developed_by == 1, "only the handle's own model links, not other orgs' models"
+    dev = _edges(session, "developed_by")
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in dev] == [(model, org)]
+    assert other_model  # tracked but untouched — asserted via the counts above
+
+
 # --- idempotency ------------------------------------------------------------
 
 

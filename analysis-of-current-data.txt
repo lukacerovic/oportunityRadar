@@ -1,0 +1,118 @@
+I've read DATA_EXPLAINED.md and queried your live seismograph DB (Postgres 17, ~2.1M rows). Everything below is grounded in real rows I pulled, not just the doc.
+
+---
+Part 1 — What you're currently doing with the data (with a real example)
+
+Your app is a funnel that turns build-activity into a market thesis. Concretely, the data flows through six layers, and here's the actual path of one real entity in your DB:
+
+Entity #2857 — "Linear Attention Architectures: Mechanisms, Trade-offs, and Cross-Layer Routing" (an arXiv paper)
+
+┌──────────────┬───────────────────────────────────────────────────────┬────────────────────────────┐
+│    Stage     │                  What your code did                   │    Real data in the DB     │
+├──────────────┼───────────────────────────────────────────────────────┼────────────────────────────┤
+│ 1. Observe   │ arXiv collector wrote an immutable paper_published    │ 1 of 23,326 raw_events     │
+│              │ event                                                 │                            │
+├──────────────┼───────────────────────────────────────────────────────┼────────────────────────────┤
+│ 2. Resolve   │ Became a durable paper entity, category               │ entities.id=2857           │
+│              │ inference-runtime                                     │                            │
+├──────────────┼───────────────────────────────────────────────────────┼────────────────────────────┤
+│ 3. Track     │ Daily evidence_breadth, momentum classified each day  │ part of 786k               │
+│              │                                                       │ momentum_states            │
+├──────────────┼───────────────────────────────────────────────────────┼────────────────────────────┤
+│ 4.           │ LLM read an evidence pack → structured card           │ 1 of 96                    │
+│ Comprehend   │                                                       │ comprehension_cards        │
+├──────────────┼───────────────────────────────────────────────────────┼────────────────────────────┤
+│ 5. Gate      │ inference-runtime maps to semiconductors → eligible   │ 1 of 809 gate_decisions    │
+│              │ to be scored                                          │                            │
+├──────────────┼───────────────────────────────────────────────────────┼────────────────────────────┤
+│ 6. Brief     │ LLM emitted a falsifiable market thesis               │ 1 of 11 impact_briefs      │
+└──────────────┴───────────────────────────────────────────────────────┴────────────────────────────┘
+
+The actual brief JSON your system produced for it:
+- Thesis: linear-attention architectures → AMD datacenter revenue line, enablement, magnitude marginal, horizon 3y+
+- Transmission path: paper → AMD (semiconductors) → AMD datacenter line
+- Observable: "how fast cloud providers (AWS, GCP) adopt this"
+- Counter-mechanism: "AMD's chiplet cost advantage mitigates the impact"
+
+So what you do today = observe where tech is built → compress 13,915 entities into ~5 gate passes/week → attach an evidence-linked, falsifiable market thesis to the survivors.
+
+The honest state of it (also from real rows)
+
+- Gate is working, brutally: 5 pass, 804 suppressed. Suppress reasons: card_pending (484), unmapped_reach (318), budget (2).
+- Briefs are proof-of-concept, not product: all 11 ran on ollama:qwen2.5:3b/7b, cost_usd=0, and — critically — the brief I pulled has evidence_refs: [] (empty). The reasoning layer isn't grounded yet.
+- The map is half-built: reach_links covers 22 of 30 categories → that's why 318 entities were suppressed as unmapped_reach.
+- Momentum ≠ level yet: gh_stars/gh_forks only span Jul 11→15 (5 days); evidence_breadth spans 6 months. Your momentum today leans heavily on breadth + HN, not on star velocity.
+
+---
+Part 2 — The asset you're underusing (this is the key to your PM/VC vision)
+
+You asked whether you can analyze "impact on different industries if a project/patent/idea achieves bigger results, and how it can impact stock markets."
+
+The answer is yes for a qualitative, evidence-linked disruption engine — and the data for it already exists but you're only using it in one direction.
+
+Right now you use the map entity → company. But your exposure_companies.doc is far richer than the brief pipeline uses. Here's the real NVDA doc I pulled:
+
+NVDA · datacenter (88% of revenue)
+  threat_surface:
+    - model-efficiency   → demand_risk   (core: true)   ← a category!
+    - inference-runtime  → demand_risk   (core: false)
+    - ml-compiler        → dependency_risk
+    - distributed-systems→ enablement
+
+Every company already declares which technology categories threaten or enable each revenue line, weighted by share_of_revenue and a core flag. And you have live momentum for every entity in those categories. That means you can reverse the arrow and go company → threatened revenue lines → categories → live momentum — which is exactly the PM/VC tool you're describing. You don't need new data to build it; you need to query the map backwards.
+
+---
+Part 3 — Features you can build, ranked by data-readiness
+
+✅ Ready NOW (data fully supports it)
+
+1. Company Disruption-Pressure Index (the flagship PM feature)
+For each of the 30 tickers: for every revenue line, sum the momentum of all live entities in that line's threat_surface categories, weighted by share_of_revenue × core. Split by relation:
+- substitution_partial / demand_risk → headwind
+- enablement / dependency_risk → tailwind
+
+Output: "NVDA datacenter (88% of revenue) faces 12 accelerating + 2 breakout model-efficiency entities this week (core threat) → headwind score rising 3 weeks straight." This is a single number per company, per week, fully back-testable. Everything needed is in exposure_companies.doc + momentum_states + entity_category_history.
+
+2. Sector / Category Heat Indices
+Aggregate momentum_states by category over time → "which tech categories are heating." You have 786k daily readings back to January. Gives PMs a "where is capital-attracting activity accelerating" line chart per category. Pure aggregation, zero new data.
+
+3. Cohort Base-Rate / Survival Analytics
+The momentum inputs JSONB already stores cohort_key, cohort_n, percentile counts. With 6 months of history you can answer "what % of agent-framework breakouts are still ≥accelerating 30 days later?" — turning every brief's confidence from a vibe into a calibrated survival probability. This is the number a PM actually trusts. Feasible today from historical momentum_states.
+
+4. Portfolio / Watchlist Threat Alerts
+A PM uploads their holdings (subset of your 30 tickers). You map each to its threat_surface categories and alert when a matching entity crosses into breakout. Reuses feature #1's join.
+
+5. Two-Sided Exposure View (headwind vs tailwind)
+Your reach_links.relation already distinguishes enablement, substitution_partial, demand_risk, dependency_risk. Present each company as a net tailwind/headwind bar rather than one-directional. Field already exists.
+
+🟡 Ready after ONE fix you've already identified
+
+6. Calibrated leading-indicator backtest — needs brief_scores populated (currently 0 rows) and hindcast_runs run (currently 0). You have the immutable history to do it; it's wiring, not new data. This is what lets you claim "our breakout signal preceded the move."
+
+7. Fix the categoriser first — 4,023 entities are uncategorized, and I pulled real current breakouts that are uncategorized: rust-lang/rust, oven-sh/bun, unclecode/crawl4ai, jamiepine/voicebox. Uncategorized → no reach → invisible to every feature above. This is the single biggest multiplier on all of Part 3.
+
+🔴 Needs a NEW data source (be honest about the ceiling)
+
+8. Quantitative price/return impact — Your ambition of "how it impacts stock markets" has a hard limit: there is no market price, returns, or fundamentals data anywhere in the DB. Today you can produce directional, falsifiable, evidence-linked theses (headwind/tailwind + horizon) — genuinely valuable to a PM as a research signal — but you cannot yet correlate momentum → actual stock returns or claim quantitative alpha. To cross that line you'd add one market_prices table (daily OHLCV for the 30 tickers) and join it to your momentum indices. That's the difference between "here's a disruption signal to investigate" and "this signal has historically preceded a 4% move."
+
+---
+Bottom line
+
+┌──────────────────────────────────────────┬────────────────────────────────────────────────────────┐
+│                Your goal                 │               Feasible on current data?                │
+├──────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Analyze how tech industry is moving      │ Yes — category heat indices (786k momentum rows)       │
+├──────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Which industries/companies get impacted  │ Yes — reverse the threat_surface map (feature #1);     │
+│ if a project succeeds                    │ you're just not querying it backwards yet              │
+├──────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Falsifiable thesis with horizon &        │ Yes, schema exists — but upgrade briefs off qwen2.5:3b │
+│ counter-mechanism                        │  to a real model, and populate evidence_refs           │
+├──────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+│ Quantitative stock-price impact          │ Not yet — needs a prices table; everything else is     │
+│                                          │ directional                                            │
+└──────────────────────────────────────────┴────────────────────────────────────────────────────────┘
+
+Your data is genuinely rich enough for a VC/PM "disruption radar" — the exposure-map threat_surface is a proprietary asset most competitors don't have. The gap isn't data richness; it's (a) reversing the map into company-centric views, (b) fixing the categoriser so breakouts stay visible, and (c) adding one prices table to graduate from directional to quantitative.
+
+Want me to prototype feature #1 (Company Disruption-Pressure Index) as a real SQL query against your DB so you can see, right now, what NVDA's or CRM's threat/tailwind score looks like from your actual momentum data?

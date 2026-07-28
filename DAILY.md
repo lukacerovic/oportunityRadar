@@ -77,6 +77,11 @@ passing entities once momentum accrues.
   ```bash
   uv run seismo enrich-readmes --limit 50   # then: seismo resolve && seismo comprehend
   ```
+- **Team enrichment** (who is behind a paper/repo — employers, ex-employers, founders, via
+  Wikidata; the daily run does 200/day on its own):
+  ```bash
+  uv run seismo enrich-wikidata --limit 200   # then: seismo resolve && seismo derive-edges
+  ```
 - **Health check** anytime:
   ```bash
   uv run seismo doctor

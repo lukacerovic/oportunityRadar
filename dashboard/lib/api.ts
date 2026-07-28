@@ -86,9 +86,17 @@ export function getScorePacket(entityId: number): Promise<ScorePacketResponse> {
   return get<ScorePacketResponse>(`/briefs/${entityId}/score-packet`, 30);
 }
 
-export function getGraph(params: { trending?: boolean } = {}): Promise<GraphResponse> {
-  const q = params.trending ? "?trending=true" : "";
-  return get<GraphResponse>(`/graph${q}`, 3600); // rebuilds infrequently, cache generously
+export function getGraph(
+  params: { trending?: boolean; q?: string } = {}
+): Promise<GraphResponse> {
+  const search = new URLSearchParams();
+  if (params.trending) search.set("trending", "true");
+  if (params.q) search.set("q", params.q);
+  const qs = search.toString();
+  // 60s, not an hour: since the Wikidata enrichment landed, the graph gains edges every
+  // pipeline run, and a stale cached response makes fresh enrichments invisible (a search
+  // result cached at 9 nodes kept serving 9 nodes while the DB held 14).
+  return get<GraphResponse>(`/graph${qs ? `?${qs}` : ""}`, 60);
 }
 
 export const API_BASE = BASE;

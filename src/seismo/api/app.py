@@ -135,11 +135,17 @@ def radar(
                 + ("AND COALESCE(ms.state, 'dormant') = :state " if state else "")
                 + ("AND gp.entity_id IS NOT NULL " if gated else "")
                 + (
-                    # Filter by ORIGIN, not "any event that touched it": an entity belongs to the
-                    # registry it is anchored on. HN stories attach to the github/arxiv/hf thing
-                    # they link to, so those stay under their own source; only HN-native launches
-                    # (anchored `web`) show under Hacker News. Mutually exclusive buckets.
-                    "AND e.attrs->'anchors' ? :source_reg "
+                    # Filter by WHICH COLLECTOR FOUND IT, not by anchor registry. These buckets
+                    # overlap by design — a repo that also trended on HN is genuinely both, and a
+                    # user clicking "Hacker News" means "what did HN surface", not "what is
+                    # anchored on a bare URL".
+                    #
+                    # This replaced an anchored, mutually-exclusive scheme where the `hn` pill was
+                    # the `web` registry (HN-native launches with no repo/model). That partitioned
+                    # cleanly but reported Hacker News as 22 entities when HN had actually surfaced
+                    # 1,916 — the other 99% were filed under the registry they linked to. A source
+                    # facet that hides 99% of a source's reach is worse than one that overlaps.
+                    "AND :source_reg = ANY(COALESCE(src.sources, ARRAY[]::text[])) "
                     if source
                     else ""
                 )
@@ -160,29 +166,35 @@ def radar(
                 "limit": limit,
                 **({"theme": theme} if theme else {}),
                 **({"state": state} if state else {}),
-                # Dashboard pill 'hn' → the `web` registry (HN-native launches like Kimi).
-                **({"source_reg": "web" if source == "hn" else source} if source else {}),
+                # Pill key == collector source key; no registry translation any more.
+                **({"source_reg": source} if source else {}),
             },
         )
         .mappings()
         .all()
     )
 
-    # Global per-origin entity counts (whole visible universe, independent of the current filters)
-    # so the dashboard's source pills show true totals. Counted by anchor registry to match the
-    # by-origin filter above; the 'hn' bucket is the HN-native `web` launches.
+    # Per-source entity counts over the whole visible universe, independent of the current filters
+    # so the pills show true totals. Counted the same way the filter selects — by the collector
+    # events attached to the entity — so a pill's number always equals the rows you get by clicking
+    # it. Buckets overlap: an entity found on GitHub that also trended on HN counts in both, so
+    # these do not sum to the total. Respects ``as_of`` like every other analytical read, or a
+    # hindcast would show today's counts against a historical grid.
     counts_row = session.execute(
         text(
             """
             SELECT
-              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'github') AS github,
-              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'arxiv')  AS arxiv,
-              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'hf')     AS hf,
-              COUNT(*) FILTER (WHERE e.attrs->'anchors' ? 'web')    AS hn
+              COUNT(DISTINCT e.id) FILTER (WHERE r.source = 'github') AS github,
+              COUNT(DISTINCT e.id) FILTER (WHERE r.source = 'arxiv')  AS arxiv,
+              COUNT(DISTINCT e.id) FILTER (WHERE r.source = 'hf')     AS hf,
+              COUNT(DISTINCT e.id) FILTER (WHERE r.source = 'hn')     AS hn
             FROM entities e
+            JOIN entity_links l ON l.entity_id = e.id AND l.rule = 'attach'
+            JOIN raw_events r ON r.id = l.raw_event_id AND r.occurred_at <= :as_of
             WHERE e.merged_into IS NULL AND e.tracking_tier <> 'archived'
             """
-        )
+        ),
+        {"as_of": as_of},
     ).mappings().one()
     source_counts = {k: int(counts_row[k]) for k in ("github", "arxiv", "hf", "hn")}
     gated_count = session.execute(
@@ -1275,6 +1287,25 @@ def graph(
             "(e.g. citation-only paper stubs with no other signal)."
         ),
     ),
+    q: str | None = Query(
+        None,
+        min_length=2,
+        description=(
+            "Focus search: the subgraph around entities whose name matches (ILIKE), two hops "
+            "out — so a paper match shows its authors AND the authors' orgs. Overrides "
+            "`trending`. Matched entities appear even if they have no edges yet."
+        ),
+    ),
+    top: int = Query(
+        30,
+        ge=1,
+        le=500,
+        description=(
+            "Trending mode only: cap the view to the top-N seeds (gate-passed first, then by "
+            "momentum score) plus their neighbors. Every trending repo now carries its team, "
+            "so an uncapped trending view is thousands of nodes and freezes the layout."
+        ),
+    ),
 ) -> m.GraphResponse:
     """The correlation graph: the deterministic spine (`entity_graph_edges` — built_by/cited/
     depends_on, every row justified by a raw_event) plus the LLM-reasoned relation graph
@@ -1318,6 +1349,68 @@ def graph(
     def is_seed(eid: int | None) -> bool:
         return eid is not None and eid in seed_ids
 
+    # Focus search (q): matched entities + one hop of edge-neighbors. Filtering edges by that
+    # union yields the TWO-hop neighborhood (an edge from a hop-1 person to her org survives),
+    # which is what makes a paper search show authors AND the authors' employers.
+    matched_ids: set[int] = set()
+    filter_ids: list[int] | None = None
+    if q:
+        matched_ids = set(
+            session.execute(
+                text(
+                    "SELECT id FROM entities"
+                    " WHERE canonical_name ILIKE :pat AND merged_into IS NULL LIMIT 50"
+                ),
+                {"pat": f"%{q}%"},
+            )
+            .scalars()
+            .all()
+        )
+        hop1: set[int] = set()
+        if matched_ids:
+            hop1 = set(
+                session.execute(
+                    text(
+                        "SELECT src_entity_id FROM entity_graph_edges"
+                        " WHERE dst_entity_id = ANY(:m)"
+                        " UNION"
+                        " SELECT dst_entity_id FROM entity_graph_edges"
+                        " WHERE src_entity_id = ANY(:m)"
+                    ),
+                    {"m": list(matched_ids)},
+                )
+                .scalars()
+                .all()
+            )
+        filter_ids = list(matched_ids | hop1)
+    elif trending:
+        # Cap to the strongest seeds — 🔥 marking still uses the FULL seed set above.
+        filter_ids = list(
+            session.execute(
+                text(
+                    """
+                    WITH ms AS (
+                        SELECT DISTINCT ON (entity_id) entity_id, state, score
+                        FROM momentum_states ORDER BY entity_id, day DESC
+                    ),
+                    gp AS (
+                        SELECT DISTINCT entity_id FROM gate_decisions WHERE decision = 'pass'
+                    )
+                    SELECT e.id FROM entities e
+                    LEFT JOIN ms ON ms.entity_id = e.id
+                    LEFT JOIN gp ON gp.entity_id = e.id
+                    WHERE e.merged_into IS NULL
+                      AND (gp.entity_id IS NOT NULL OR ms.state IN ('breakout', 'accelerating'))
+                    ORDER BY (gp.entity_id IS NOT NULL) DESC, ms.score DESC NULLS LAST, e.id
+                    LIMIT :top
+                    """
+                ),
+                {"top": top},
+            )
+            .scalars()
+            .all()
+        )
+
     seed_filter = "WHERE ge.src_entity_id = ANY(:seed) OR ge.dst_entity_id = ANY(:seed) "
     det_rows = (
         session.execute(
@@ -1325,14 +1418,16 @@ def graph(
                 """
                 SELECT ge.src_entity_id, ge.dst_entity_id, ge.edge_type, ge.weight,
                        e1.canonical_name AS src_name, e1.category AS src_cat,
-                       e2.canonical_name AS dst_name, e2.category AS dst_cat
+                       e1.entity_type AS src_type, e1.attrs->'wikidata' AS src_info,
+                       e2.canonical_name AS dst_name, e2.category AS dst_cat,
+                       e2.entity_type AS dst_type, e2.attrs->'wikidata' AS dst_info
                 FROM entity_graph_edges ge
                 JOIN entities e1 ON e1.id = ge.src_entity_id
                 JOIN entities e2 ON e2.id = ge.dst_entity_id
                 """
-                + (seed_filter if trending else "")
+                + (seed_filter if filter_ids is not None else "")
             ),
-            ({"seed": list(seed_ids)} if trending else {}),
+            ({"seed": filter_ids} if filter_ids is not None else {}),
         )
         .mappings()
         .all()
@@ -1344,7 +1439,8 @@ def graph(
             m.GraphNode(
                 id=sid, label=r["src_name"], kind="entity",
                 category=r["src_cat"], entity_id=r["src_entity_id"],
-                seed=is_seed(r["src_entity_id"]),
+                seed=is_seed(r["src_entity_id"]), entity_type=r["src_type"],
+                info=r["src_info"],
             ),
         )
         nodes.setdefault(
@@ -1352,7 +1448,8 @@ def graph(
             m.GraphNode(
                 id=did, label=r["dst_name"], kind="entity",
                 category=r["dst_cat"], entity_id=r["dst_entity_id"],
-                seed=is_seed(r["dst_entity_id"]),
+                seed=is_seed(r["dst_entity_id"]), entity_type=r["dst_type"],
+                info=r["dst_info"],
             ),
         )
         edges.append(
@@ -1374,9 +1471,9 @@ def graph(
                 LEFT JOIN entities e1 ON e1.id = se.src_entity_id
                 LEFT JOIN entities e2 ON e2.id = se.dst_entity_id
                 """
-                + (sem_seed_filter if trending else "")
+                + (sem_seed_filter if filter_ids is not None else "")
             ),
-            ({"seed": list(seed_ids)} if trending else {}),
+            ({"seed": filter_ids} if filter_ids is not None else {}),
         )
         .mappings()
         .all()
@@ -1405,6 +1502,25 @@ def graph(
                 kind="reasoned", weight=float(r["confidence_score"]),
             )
         )
+
+    # A searched-for entity with no edges yet must still show up — an honest "we track it but
+    # know no relationships" beats silently returning an empty graph.
+    missing = [eid for eid in matched_ids if entity_id_of(eid) not in nodes]
+    if missing:
+        for r in session.execute(
+            text(
+                "SELECT id, canonical_name, category, entity_type,"
+                " attrs->'wikidata' AS info FROM entities"
+                " WHERE id = ANY(:ids)"
+            ),
+            {"ids": missing},
+        ).mappings():
+            nid = entity_id_of(r["id"])
+            nodes[nid] = m.GraphNode(
+                id=nid, label=r["canonical_name"], kind="entity", category=r["category"],
+                entity_id=r["id"], seed=is_seed(r["id"]), entity_type=r["entity_type"],
+                info=r["info"],
+            )
 
     return m.GraphResponse(nodes=list(nodes.values()), edges=edges)
 

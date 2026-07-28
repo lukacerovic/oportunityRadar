@@ -250,6 +250,40 @@ def enrich_hn(
         )
 
 
+@app.command(name="enrich-wikidata")
+def enrich_wikidata(
+    limit: int = typer.Option(200, help="Cap the number of entities to enrich (rate budget)."),
+) -> None:
+    """Team enrichment (WIKIDATA_ENRICHMENT_PLAN.md) — resolve person/org entities to Wikidata
+    items and record their claims (employer history, founders) as ``wikidata_entity`` events.
+    Guarded matching: ambiguous names are skipped, never guessed. Targets only still-un-enriched
+    entities, so daily runs steadily complete coverage. Run ``resolve`` (attaches the events,
+    mints new orgs) then ``derive-edges`` (mints employed_by/formerly_at/founded edges) after."""
+    from seismo.collectors.runner import persist_drafts
+    from seismo.collectors.wikidata import (
+        WikidataClient,
+        enrich_targets,
+        hf_org_display_name,
+        select_targets,
+    )
+    from seismo.db import session_scope
+
+    with record_pipeline_run("enrich-wikidata"):
+        with session_scope() as session:
+            targets = select_targets(session, limit=limit)
+        # Fetch outside any open transaction (2-3 rate-limited calls per target adds up).
+        result = enrich_targets(
+            WikidataClient(), targets, org_name_lookup=hf_org_display_name
+        )
+        with session_scope() as session:
+            new = persist_drafts(session, result.drafts)
+        typer.echo(
+            f"[enrich-wikidata] {len(targets)} targets → {len(result.drafts)} resolved, "
+            f"{result.skipped} skipped, {new} new events "
+            f"(run `seismo resolve` then `seismo derive-edges` to mint team edges)"
+        )
+
+
 @app.command()
 def sweep(
     days: int = typer.Option(None, help="Historical span in days; default COLDSTART_SWEEP_DAYS."),

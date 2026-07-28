@@ -1,0 +1,64 @@
+You're right to be suspicious — the collector is finding almost nothing, and I can show you exactly where it dies. I replayed discover()'s filter chain against the live Hub just now:
+
+trending models scanned (MAX_PAGES=20):  2000
+  born < 1d:    9  | +traction:   1  | +relevant (=kept):   0
+  born < 2d:   25  | +traction:   6  | +relevant (=kept):   4
+  born < 7d:  206  | +traction:  97  | +relevant (=kept):  81
+  born <30d:  581  | +traction: 387  | +relevant (=kept): 264
+
+Today's discovery run would have collected zero models. Not "few" — zero.
+
+Why
+
+discover() (src/seismo/collectors/hf.py:72) intersects two sets that barely overlap:
+
+1. Trending right now — it pages sort=trendingScore for 20 pages (2,000 models, MAX_PAGES:49).
+2. Born inside the window — typically the last 24h (hf.py:103).
+
+The trending list is old. Age percentiles from the live scan: p50 = 86 days, p75 = 242, p90 = 595. Only 9 of 2,000 trending models were born in the last day — 0.45%.
+
+Then two more gates cut that 9 down:
+
+- Traction floor (hf.py:47): downloads >= 1000 OR likes >= 10. Of the 9 newborns, exactly 1 clears it. This is the killer — a model born yesterday hasn't accumulated 1,000 downloads yet, by definition.
+- Relevance (hf.py:31): the single survivor was FINAL-Bench/POCKET-Image-Zimage, pipeline_tag=text-to-image — not in RELEVANT_PIPELINES, no keyword hit. Rejected. → 0 kept.
+
+The docstring at hf.py:73-80 actually names this tension ("sorting by createdAt is self-defeating — the newest models have the least usage") and tries to solve it by scanning trending instead. But that just inverts the same problem: requiring a model to be both newborn and already-trending and already-high-traction is a near-empty set.
+
+The data confirms it
+
+Discovery events by model birth date:
+
+07-11: 6   07-12: 7   07-13: 20  07-14: 21  07-15: 6
+07-16: 4   07-17: 4   07-20: 2   07-22: 2   07-23: 6
+
+The HF collector's first run was 2026-07-18 — a week after github/hn/arxiv. The 07-11→07-17 numbers are one backfill window with a wide date range (that's where the bulk came from). Since going live daily: 2, 2, 6, and nothing at all on 07-18, 19, 21, 24, 25, 26 — about 1.5 models/day, with most days empty.
+
+Total: 78 distinct models ever discovered, 110 entities carrying an hf anchor. Against a Hub that publishes thousands of models daily.
+
+So — the HF community research is genuinely 100% complete (all 110 anchored entities researched, 53 with discussion). The gap isn't in community research at all. You only have 110 HF entities to research in the first place. That's the bug.
+
+What would actually fix it
+
+From the probe, ranked by leverage:
+
+┌───────────────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────┐
+│                      Change                       │                                Yield                                │
+├───────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+│ Widen birth window 1d → 7d                        │ 0 → 81 models/week                                                  │
+├───────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+│ Widen to 30d                                      │ → 264                                                               │
+├───────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+│ Drop/graduate the traction floor for young models │ born<2d goes 1 → up to 25 candidates                                │
+├───────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+│ Broaden RELEVANT_PIPELINES (image/video/TTS)      │ today's only traction-passing newborn was excluded as text-to-image │
+├───────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
+│ Raise MAX_PAGES                                   │ marginal — the trending tail is older, not newer                    │
+└───────────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────┘
+
+The cleanest fix is a two-pass discovery: keep the trending pass as-is for quality, and add a second pass sorted by createdAt desc that admits young models provisionally with a low bar, letting the existing track() pass promote them once downloads actually accumulate. That matches how the maturity ladder already works and stops requiring a model to be famous on day one.
+
+One caveat you should weigh: occurred_at is stamped with the model's real createdAt (hf.py:104), so widening the window back-dates events into already-processed history, which can disturb momentum states for past days. That is very likely why the tight window is there. A provisional-admission pass avoids this by stamping discovery at observation time instead.
+
+Which do you want? I'd start with widening the window to 7–14 days plus broadening the pipeline set — smallest change, ~80×  the yield — and treat the two-pass redesign as a follow-up. But the back-dating question is a real design call on your system, so tell me how you want to handle it before I touch the collector.
+
+Meanwhile the verdict loop is still running — batch 1 committed 100/100, ~1,020 to go.

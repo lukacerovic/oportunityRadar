@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Seismograph daily heartbeat — macOS LaunchAgent.
+  Runs scripts/daily.sh once a day so momentum/enrichment/cards stay fresh automatically.
+
+  Install:   cp scripts/com.seismograph.daily.plist ~/Library/LaunchAgents/ \
+             && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.seismograph.daily.plist
+  Run now:   launchctl kickstart -k gui/$(id -u)/com.seismograph.daily
+  Status:    launchctl print gui/$(id -u)/com.seismograph.daily | grep -i state
+  Uninstall: launchctl bootout gui/$(id -u)/com.seismograph.daily \
+             && rm ~/Library/LaunchAgents/com.seismograph.daily.plist
+
+  NOTE: the AI steps (comprehend/brief) need the Ollama app running. If it isn't, those steps fail
+  and are skipped (the rest of the pipeline still runs); the log records it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.seismograph.daily</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /Users/lukacerovic/Desktop/OportunityRadar &amp;&amp; ./scripts/daily.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/lukacerovic/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- No WorkingDirectory: the Desktop is a TCC-protected folder and launchd cannot chdir into it
+       at job setup (→ EX_CONFIG). The command below cd's into the project itself instead. -->
+
+  <!-- Daily at 09:00. If the Mac is asleep at that time, launchd runs it once on next wake. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- Logs must live OUTSIDE the Desktop (a TCC-protected folder) or launchd can't open them. -->
+  <key>StandardOutPath</key>
+  <string>/Users/lukacerovic/Library/Logs/seismograph-daily.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lukacerovic/Library/Logs/seismograph-daily.log</string>
+</dict>
+</plist>

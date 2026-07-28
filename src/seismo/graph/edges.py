@@ -5,12 +5,29 @@ attached at/before ``as_of`` and resolves every endpoint through :func:`canonica
 re-run for the same instant is idempotent. It derives three domain relations from evidence other
 steps already recorded (it never fetches):
 
-- ``built_by``  — person → repo, from a ``repo_contributors`` event's contributor logins.
-- ``cited``     — repo → paper, from an arXiv id in a ``repo_readme`` event's text.
-- ``depends_on``— package → package, from a ``pypi_metadata`` event's ``requires_dist`` list.
+- ``built_by``   — person → repo, from a ``repo_contributors`` event's contributor logins.
+- ``cited``      — repo → paper, from an arXiv id in a ``repo_readme`` event's text.
+- ``depends_on`` — package → package, from a ``pypi_metadata`` event's ``requires_dist`` list.
+- ``authored_by``— paper → person, from a ``paper_published`` event's ``authors`` name list.
+- ``employed_by``/``formerly_at`` — person → org, from a ``wikidata_entity`` event's P108
+  employer claims (an end-date qualifier makes it ``formerly_at``).
+- ``founded``    — person → org, from an org ``wikidata_entity`` event's P112 claims (inverted);
+  P169 (CEO) / P1037 (director) / P488 (chair) / P3320 (board) targets land as ``employed_by``.
+- ``developed_by`` — model → org, when an org ``wikidata_entity`` event carries the HF
+  ``org_handle`` it was resolved from: every tracked model under that handle links to the org.
+- ``educated_at`` — person → org, from P69; ``advised_by`` — person → person, from P184
+  (doctoral advisor) and P185 (doctoral student, inverted) — academic lineage.
+- ``notable_work`` — person → work, from P800: what a founder/researcher is famous for
+  building (ChatGPT, TensorFlow, a landmark paper). Targets mint as ``work`` entities.
+- ``subsidiary_of`` — org → parent org, from P749 (and P355 inverted); ``owned_by`` — org →
+  owner, from P127; ``invested_in`` — backer → org, from P1951 (inverted) — who controls and
+  funds the org behind a project.
 
-``built_by``/``cited`` mint the person/paper entity on first sight (anchored consistently with the
-resolver's anchor keys); ``depends_on`` only links packages already tracked. Every edge is upserted
+``built_by``/``cited``/``authored_by`` mint the person/paper entity on first sight (anchored
+consistently with the resolver's anchor keys); ``depends_on`` only links packages already tracked.
+Authors are anchored ``person_name:<slug>`` — a deliberately weak identity (names collide); a
+later Wikidata QID anchor becomes the strong one and duplicates fold via the merge machinery.
+Every edge is upserted
 on ``(src, dst, edge_type)`` with the justifying raw_event id in ``evidence_refs``. Self-loops are
 skipped: an R1 auto-merge can fold a cited paper into its own repo, and a repo may not cite itself.
 """
@@ -41,14 +58,34 @@ class EdgeStats:
     built_by: int = 0
     cited: int = 0
     depends_on: int = 0
+    authored_by: int = 0
+    employed_by: int = 0
+    formerly_at: int = 0
+    founded: int = 0
+    developed_by: int = 0
+    educated_at: int = 0
+    advised_by: int = 0
+    subsidiary_of: int = 0
+    owned_by: int = 0
+    invested_in: int = 0
+    notable_work: int = 0
     persons_created: int = 0
     papers_created: int = 0
+    orgs_created: int = 0
+    works_created: int = 0
     edges_upserted: int = 0
 
     def as_note(self) -> str:
         return (
             f"built_by={self.built_by} cited={self.cited} depends_on={self.depends_on} "
+            f"authored_by={self.authored_by} employed_by={self.employed_by} "
+            f"formerly_at={self.formerly_at} founded={self.founded} "
+            f"developed_by={self.developed_by} educated_at={self.educated_at} "
+            f"advised_by={self.advised_by} subsidiary_of={self.subsidiary_of} "
+            f"owned_by={self.owned_by} invested_in={self.invested_in} "
+            f"notable_work={self.notable_work} "
             f"persons+={self.persons_created} papers+={self.papers_created} "
+            f"orgs+={self.orgs_created} works+={self.works_created} "
             f"upserted={self.edges_upserted}"
         )
 
@@ -73,7 +110,14 @@ def derive_edges(session: Session, as_of: datetime) -> EdgeStats:
     _derive_built_by(session, as_of, anchor_map, canonical, stats)
     _derive_cited(session, as_of, anchor_map, canonical, stats)
     _derive_depends_on(session, as_of, canonical, stats)
-    stats.edges_upserted = stats.built_by + stats.cited + stats.depends_on
+    _derive_authored_by(session, as_of, anchor_map, canonical, stats)
+    _derive_affiliations(session, as_of, anchor_map, canonical, stats)
+    stats.edges_upserted = (
+        stats.built_by + stats.cited + stats.depends_on + stats.authored_by
+        + stats.employed_by + stats.formerly_at + stats.founded + stats.developed_by
+        + stats.educated_at + stats.advised_by + stats.subsidiary_of
+        + stats.owned_by + stats.invested_in + stats.notable_work
+    )
     return stats
 
 
@@ -226,6 +270,168 @@ def _derive_cited(
                 continue  # R1 auto-merge folded the cited paper into the repo — skip self-loop
             _upsert_edge(session, repo, paper, "cited", row["raw_id"], occurred.date())
             stats.cited += 1
+
+
+# --- authored_by: paper -> person --------------------------------------------
+
+
+def _derive_authored_by(
+    session: Session,
+    as_of: datetime,
+    anchor_map: dict[str, int],
+    canonical: Any,
+    stats: EdgeStats,
+) -> None:
+    for row in _attached_events(session, "paper_published", as_of):
+        paper_id = canonical(row["entity_id"])
+        occurred: datetime = row["occurred_at"]
+        seen: set[str] = set()
+        for name in row["payload"].get("authors") or []:
+            display = str(name).strip()
+            slug = anchor_mod._slugify(display)
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            person_id, created = _get_or_create(
+                session, anchor_map, "person_name", slug, "person", display, occurred
+            )
+            if created:
+                stats.persons_created += 1
+            person = canonical(person_id)
+            if person == paper_id:
+                continue  # defensive: never a self-loop
+            _upsert_edge(session, paper_id, person, "authored_by", row["raw_id"], occurred.date())
+            stats.authored_by += 1
+
+
+# --- team: person <-> org from wikidata_entity claims ------------------------
+
+
+def _derive_affiliations(
+    session: Session,
+    as_of: datetime,
+    anchor_map: dict[str, int],
+    canonical: Any,
+    stats: EdgeStats,
+) -> None:
+    """Team edges from Wikidata claims (WIKIDATA_ENRICHMENT_PLAN.md Phase 3).
+
+    A person event's P108 employer claims become ``employed_by`` (no end date) or ``formerly_at``
+    (P582 end qualifier present). An org event's P112 founded-by claims become ``founded``
+    (person → org, inverted); its P169/P1037 (CEO/director) targets land as ``employed_by``.
+    Claim targets are minted on first sight, anchored ``wikidata:<QID>`` — labels were embedded
+    at fetch time (pruned claims), so nothing here touches the network."""
+    def mint(entry: dict[str, Any], entity_type: str, occurred: datetime) -> int | None:
+        qid = entry.get("qid")
+        if not qid:
+            return None
+        counter = {
+            "org": "orgs_created",
+            "person": "persons_created",
+            "work": "works_created",
+        }[entity_type]
+        entity_id, created = _get_or_create(
+            session,
+            anchor_map,
+            "wikidata",
+            str(qid),
+            entity_type,
+            str(entry.get("label") or qid),
+            occurred,
+        )
+        if created:
+            setattr(stats, counter, getattr(stats, counter) + 1)
+        return canonical(entity_id)
+
+    org_props = (
+        ("P112", "founded"),
+        ("P169", "employed_by"),  # CEO
+        ("P1037", "employed_by"),  # director / manager
+        ("P488", "employed_by"),  # chairperson
+        ("P3320", "employed_by"),  # board member
+    )
+    for row in _attached_events(session, "wikidata_entity", as_of):
+        subject = canonical(row["entity_id"])
+        occurred: datetime = row["occurred_at"]
+        payload = row["payload"]
+        claims = payload.get("claims") or {}
+        seen: set[tuple[str, str]] = set()
+
+        def link(
+            entry: dict[str, Any],
+            edge_type: str,
+            target_type: str,
+            *,
+            outgoing: bool,
+            # bound per-iteration via defaults so the closure doesn't lazily capture loop vars
+            subject: int = subject,
+            occurred: datetime = occurred,
+            seen: set = seen,
+            raw_id: int = row["raw_id"],
+        ) -> None:
+            """Mint the claim target and upsert one edge. ``outgoing``: subject → target
+            (employed_by, subsidiary_of, owned_by); else target → subject (founded, invested_in)."""
+            key = (edge_type, str(entry.get("qid")), outgoing)
+            if key in seen:
+                return
+            seen.add(key)
+            other = mint(entry, target_type, occurred)
+            if other is None or other == subject:
+                return
+            src, dst = (subject, other) if outgoing else (other, subject)
+            _upsert_edge(session, src, dst, edge_type, raw_id, occurred.date())
+            setattr(stats, edge_type, getattr(stats, edge_type) + 1)
+
+        if payload.get("entity_type") == "person":
+            for entry in claims.get("P108") or []:
+                edge_type = "formerly_at" if entry.get("end") else "employed_by"
+                link(entry, edge_type, "org", outgoing=True)
+            for entry in claims.get("P69") or []:
+                link(entry, "educated_at", "org", outgoing=True)
+            for entry in claims.get("P184") or []:  # subject's doctoral advisor
+                link(entry, "advised_by", "person", outgoing=True)
+            for entry in claims.get("P185") or []:  # subject's doctoral student → inverted
+                link(entry, "advised_by", "person", outgoing=False)
+            for entry in claims.get("P800") or []:  # what they are famous for building
+                link(entry, "notable_work", "work", outgoing=True)
+        elif payload.get("entity_type") == "org":
+            for prop, edge_type in org_props:
+                for entry in claims.get(prop) or []:
+                    link(entry, edge_type, "person", outgoing=False)
+            # Ownership / backing. Owners and investors default to org — the QID-direct
+            # enrichment pass corrects the type from P31 when it later fetches them.
+            for entry in claims.get("P749") or []:  # subject's parent organization
+                link(entry, "subsidiary_of", "org", outgoing=True)
+            for entry in claims.get("P355") or []:  # subject's subsidiary → inverted
+                link(entry, "subsidiary_of", "org", outgoing=False)
+            for entry in claims.get("P127") or []:
+                link(entry, "owned_by", "org", outgoing=True)
+            for entry in claims.get("P1951") or []:  # investors point INTO the org
+                link(entry, "invested_in", "org", outgoing=False)
+            # An org resolved from an HF handle owns every tracked model under that handle —
+            # the edge that connects the team subgraph to the artifacts people actually browse.
+            # The handle comes from the event when the handle path fetched it, else from the
+            # entity (resolve persists it there), so a QID-path re-fetch doesn't lose the link.
+            handle = payload.get("org_handle") or session.execute(
+                text("SELECT attrs->>'hf_org_handle' FROM entities WHERE id = :id"),
+                {"id": subject},
+            ).scalar()
+            if handle:
+                model_rows = session.execute(
+                    text(
+                        "SELECT id FROM entities WHERE attrs->'anchors'->>'hf' LIKE :pre"
+                        " AND created_at <= :as_of"
+                    ),
+                    {"pre": f"{handle}/%", "as_of": as_of},
+                ).all()
+                for (model_id,) in model_rows:
+                    model = canonical(int(model_id))
+                    if model == subject:
+                        continue
+                    _upsert_edge(
+                        session, model, subject, "developed_by", row["raw_id"], occurred.date()
+                    )
+                    stats.developed_by += 1
 
 
 # --- depends_on: package -> package -----------------------------------------

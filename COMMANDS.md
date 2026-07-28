@@ -47,6 +47,10 @@ WEEK=$(date +%G-W%V)                                   # current ISO week, e.g. 
 uv run seismo collect --source fast --window 1d        # 1. find new repos/papers/stories (last 24h)
 uv run seismo track   --source github --limit 1500     # 2. re-measure known repos' stars/forks (~13 min)
 uv run seismo resolve                                  # 3. fold new events into entities + auto-merge
+uv run seismo enrich-wikidata --limit 200              # 3b. team enrichment — who is behind each paper/repo
+                                                       #     (Wikidata: employers, ex-employers, founders)
+uv run seismo derive-edges                             # 3c. typed graph edges (built_by/cited/authored_by/
+                                                       #     employed_by/formerly_at/founded) for the graph page
 uv run seismo snapshot                                 # 4. rebuild the daily metric table from snapshots
 uv run seismo score                                    # 5. velocity → momentum states (dormant…breakout)
 uv run seismo comprehend                               # 6. AI summary cards for entities crossing the trigger

@@ -344,6 +344,23 @@ export interface GraphNode {
   category: string | null;
   entity_id: number | null;
   seed: boolean; // gated or breakout/accelerating — same signal as Radar's Gated pill / 🔥 Taking off
+  // person/org nodes (Wikidata team enrichment) carry no category; style by this instead.
+  entity_type: string | null;
+  // Wikidata display card (description, website, headquarters, industry, awards, inception,
+  // dissolved, employees, occupation) — shown in the node panel; null if never enriched.
+  info: {
+    qid?: string;
+    description?: string;
+    positions?: string[]; // "CTO — OpenAI (2022–2024)"
+    website?: string;
+    inception?: string;
+    dissolved?: string;
+    employees?: string;
+    headquarters?: string[];
+    industry?: string[];
+    occupation?: string[];
+    awards?: string[];
+  } | null;
 }
 
 export interface GraphEdge {

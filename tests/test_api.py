@@ -131,31 +131,64 @@ def test_radar_ranks_breakout_first_with_one_liner(clean_db: Session) -> None:
     assert {e["name"] for e in filtered["entities"]} == {"rocket"}
 
 
-def test_radar_source_filter_and_counts_are_by_origin(clean_db: Session) -> None:
+def test_radar_source_facets_count_what_each_collector_found(clean_db: Session) -> None:
+    """Source facets are by *collector that touched the entity*, not by anchor registry.
+
+    This deliberately replaced a mutually-exclusive by-anchor scheme. That one partitioned the
+    universe neatly, but filed an HN story about a GitHub repo under GitHub — so the Hacker News
+    pill reported 22 entities when HN had actually surfaced 1,916, and the source read as dead.
+    Overlapping buckets are the correct trade: "found on HN" and "found on GitHub" are both true
+    of the same repo, and the number on a pill now always equals the rows clicking it returns.
+    """
     session = clean_db
     t0 = datetime(2024, 1, 1, tzinfo=UTC)
-    # A GitHub repo that also trended on HN: its origin is still GitHub, not Hacker News.
     repo = _entity(session, "acme/tool", created=t0, attrs={"anchors": {"github": "acme/tool"}})
-    _entity(session, "A Paper", created=t0, attrs={"anchors": {"arxiv": "2405.00001"}})
-    _entity(session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}})
+    paper = _entity(session, "A Paper", created=t0, attrs={"anchors": {"arxiv": "2405.00001"}})
+    launch = _entity(session, "Kimi K3", created=t0, attrs={"anchors": {"web": "kimi-k3"}})
     _attach_source(session, repo, "github", t0)
-    _attach_source(session, repo, "hn", t0)  # HN attention on a GitHub entity
+    _attach_source(session, repo, "hn", t0)  # HN attention on a GitHub-anchored entity
+    _attach_source(session, paper, "arxiv", t0)
+    _attach_source(session, launch, "hn", t0)  # HN-native launch, no repo or model page
     session.flush()
 
     as_of = (t0 + timedelta(days=1)).isoformat()
     r = _client(session).get("/radar", params={"as_of": as_of}).json()
     by_name = {e["name"]: e for e in r["entities"]}
-    # The `sources` array still records every collector that touched an entity (raw provenance).
     assert set(by_name["acme/tool"]["sources"]) == {"github", "hn"}
-    # ...but the pill COUNTS are by origin: the repo counts as GitHub, never Hacker News.
-    assert r["source_counts"] == {"github": 1, "arxiv": 1, "hf": 0, "hn": 1}
+    # The repo counts under BOTH github and hn — buckets overlap and do not sum to the total.
+    assert r["source_counts"] == {"github": 1, "arxiv": 1, "hf": 0, "hn": 2}
 
-    # Selecting Hacker News returns ONLY the HN-native launch — no GitHub repo bleeds in.
+    # Hacker News now surfaces everything HN found, not just the anchorless launch.
     hn = _client(session).get("/radar", params={"as_of": as_of, "source": "hn"}).json()
-    assert {e["name"] for e in hn["entities"]} == {"Kimi K3"}
-    # Selecting GitHub returns the repo (which trended on HN) but not the launch.
+    assert {e["name"] for e in hn["entities"]} == {"acme/tool", "Kimi K3"}
     gh = _client(session).get("/radar", params={"as_of": as_of, "source": "github"}).json()
     assert {e["name"] for e in gh["entities"]} == {"acme/tool"}
+
+    # Every pill's count equals the number of rows selecting it returns — the property the old
+    # scheme broke.
+    for key in ("github", "arxiv", "hf", "hn"):
+        picked = _client(session).get("/radar", params={"as_of": as_of, "source": key}).json()
+        assert len(picked["entities"]) == r["source_counts"][key], key
+
+
+def test_radar_source_counts_respect_as_of(clean_db: Session) -> None:
+    """A hindcast must not see a collector that only touched the entity later (invariant 2)."""
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    repo = _entity(session, "acme/late", created=t0, attrs={"anchors": {"github": "acme/late"}})
+    _attach_source(session, repo, "github", t0)
+    _attach_source(session, repo, "hn", t0 + timedelta(days=30))  # HN noticed it a month later
+    session.flush()
+
+    early = _client(session).get(
+        "/radar", params={"as_of": (t0 + timedelta(days=1)).isoformat()}
+    ).json()
+    assert early["source_counts"]["hn"] == 0, "future HN attention must be invisible"
+
+    later = _client(session).get(
+        "/radar", params={"as_of": (t0 + timedelta(days=60)).isoformat()}
+    ).json()
+    assert later["source_counts"]["hn"] == 1
 
 
 def test_dossier_exposes_readable_sources(clean_db: Session) -> None:

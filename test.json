@@ -1,0 +1,47 @@
+SELECT DISTINCT
+    ?companyLabel
+    ?comapnyPropertyLabel
+    ?comapnyValueLabel
+    ?personLabel
+    ?epersonPropertyLabel
+    ?personValueLabel
+
+WHERE{
+    VALUES ?company {
+        wd:Q132532850
+    }
+
+
+    # Company information
+
+    OPTIONAL {
+        ?comany ?comapnyP ?companyValue .
+        ?comapnyProperty wikibase:directClaim ?companyP
+    }
+
+    #people connected to company
+
+    OPTIONAL {
+        VALUES ?relationship {
+            wdt: P112 #founder
+            wdt: P169 # ceo
+            wdt: P488 #chairperson
+            wdt: P1037 #director / manager
+            wdt: P3320 # board member
+        }
+
+        ?comany ?relationship ?person .
+
+        #personal information
+        OPTIONAL {
+            ?person ?personP ?personValue .
+            ?personPropert wikibase:directClaim ?personP .
+        }
+    }
+
+    SERVICE wikibase:label {
+        bd:serviceParam wikibase:language "en".
+    }
+}
+
+ORDER BY ?personLabel ?personPropertLabel

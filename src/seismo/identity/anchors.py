@@ -50,6 +50,7 @@ _ENTITY_TYPE = {
     "arxiv": "paper",
     "hf": "model",
     "web": "product",  # name-anchored launch with no tracked registry (doc 04 §2, Wave-3)
+    "person_name": "person",  # paper authors minted by derive-edges (weak identity by design)
 }
 
 # A registry-less HN launch at or above this score is promoted to a first-class ``web`` entity
@@ -195,6 +196,17 @@ def primary_anchor(source: str, event_type: str, payload: dict[str, Any]) -> Anc
         if reg and nid:
             etype = _ENTITY_TYPE.get(reg, "product")
             return Anchor(reg, str(nid), etype, payload.get("name") or str(nid))
+        return None
+    if source == "wikidata":
+        # Team enrichment (WIKIDATA_ENRICHMENT_PLAN.md): a ``wikidata_entity`` event carries the
+        # anchor it belongs to explicitly — a person's EXISTING anchor (person_name / github
+        # user), so evidence lands on the entity we already track; or ``wikidata:<QID>`` for an
+        # org we don't know yet, which this anchor then mints as a first-class ``org`` entity.
+        a = payload.get("anchor") or {}
+        reg, nid = a.get("registry"), a.get("native_id")
+        if reg and nid:
+            etype = payload.get("entity_type") or _ENTITY_TYPE.get(reg, "person")
+            return Anchor(reg, str(nid), etype, payload.get("label") or str(nid))
         return None
     if source == "openrouter":
         # OpenRouter evidence belongs to the *model's* entity, not a registry of its own: the

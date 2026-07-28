@@ -45,6 +45,12 @@ class GraphNode(BaseModel):
     category: str | None = None
     entity_id: int | None = None  # None for a concept node
     seed: bool = False  # gated or breakout/accelerating — the "why this is on screen" signal
+    # person/org nodes (Wikidata team enrichment) have no category — the dashboard styles them
+    # by this instead, so the team layer reads distinctly from projects/papers/models.
+    entity_type: str | None = None
+    # attrs['wikidata'] display card (description, website, HQ, industry, awards, dates) —
+    # rendered in the node panel on click; None for nodes without Wikidata enrichment.
+    info: dict[str, Any] | None = None
 
 
 class GraphEdge(BaseModel):

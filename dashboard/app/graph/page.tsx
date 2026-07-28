@@ -12,12 +12,18 @@ export const dynamic = "force-dynamic";
 export default async function GraphPage({
   searchParams,
 }: {
-  searchParams: { trending?: string };
+  searchParams: { trending?: string; q?: string };
 }) {
-  const trending = searchParams.trending === "true";
+  // Trending is the DEFAULT: the full graph is ~12k nodes (9k+ of them paper authors since the
+  // Wikidata team enrichment) and the force layout can't render that pleasantly. Full view is
+  // opt-in via ?trending=false. A search (q) overrides both — the API returns the two-hop
+  // neighborhood around name matches, so "thinking machines" shows the model, its org, and the
+  // org's founders without loading the rest of the universe.
+  const q = (searchParams.q ?? "").trim();
+  const trending = searchParams.trending !== "false";
   let data: GraphResponse;
   try {
-    data = await getGraph({ trending });
+    data = await getGraph(q ? { q } : { trending });
   } catch (e) {
     return (
       <>
@@ -42,24 +48,54 @@ export default async function GraphPage({
               drag to pan, scroll to zoom.
             </p>
           </div>
-          <Link
-            href={trending ? "/graph" : "/graph?trending=true"}
-            title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs."
-            className={`rounded-full border px-3 py-1 text-xs transition ${
-              trending ? "text-bg" : "text-muted hover:text-text"
-            }`}
-            style={trending ? { background: "#A78BFA", borderColor: "#A78BFA" } : { borderColor: "#1E2A2C" }}
-          >
-            🔥 Trending only
-          </Link>
+          <div className="flex items-center gap-3">
+            <form action="/graph" className="flex items-center gap-2">
+              <input
+                type="search"
+                name="q"
+                defaultValue={q}
+                placeholder="Search entities… (e.g. thinking machines)"
+                className="w-64 rounded-full border border-border bg-surface px-3 py-1 text-xs text-text placeholder:text-faint focus:border-accent-dim focus:outline-none"
+              />
+              {q && (
+                <Link href="/graph" className="text-xs text-muted hover:text-text">
+                  ✕ clear
+                </Link>
+              )}
+            </form>
+            <Link
+              href={trending && !q ? "/graph?trending=false" : "/graph"}
+              title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs."
+              className={`rounded-full border px-3 py-1 text-xs transition ${
+                trending && !q ? "text-bg" : "text-muted hover:text-text"
+              }`}
+              style={
+                trending && !q
+                  ? { background: "#A78BFA", borderColor: "#A78BFA" }
+                  : { borderColor: "#1E2A2C" }
+              }
+            >
+              🔥 Trending only
+            </Link>
+          </div>
         </div>
 
         {data.nodes.length === 0 ? (
           <div className="panel p-10 text-center text-sm text-muted">
-            {trending ? (
+            {q ? (
+              <>
+                No tracked entity matches <span className="text-text">&ldquo;{q}&rdquo;</span>.{" "}
+                <Link href="/graph" className="text-accent hover:underline">
+                  Back to trending →
+                </Link>
+              </>
+            ) : trending ? (
               <>
                 No entity has passed the gate or is breakout/accelerating yet — nothing to show in
-                trending mode. <Link href="/graph" className="text-accent hover:underline">View the full graph →</Link>
+                trending mode.{" "}
+                <Link href="/graph?trending=false" className="text-accent hover:underline">
+                  View the full graph →
+                </Link>
               </>
             ) : (
               <>

@@ -54,7 +54,19 @@ run() {  # run "<label>" <command...>
 
 echo "########## Seismograph daily — $STAMP ##########" | tee -a "$LOG"
 
-run "collect"  uv run seismo collect --source all --window 1d
+# 3-day window, not 1: two independent reasons, both learned the hard way.
+#   * Self-healing. A missed or failed day used to be a permanent hole — the next run only looked
+#     back 24h. Three days of overlap means a run can fail twice and still lose nothing.
+#   * Hugging Face needs it structurally. Unlike github/hn/arxiv, which query date-ordered feeds,
+#     HF has no server-side date filter: `discover` scans the *trending* list (20 pages x 100) and
+#     uses the window as a post-filter, keeping models both trending now AND born in the window.
+#     At 1d that intersection is nearly empty — a model is rarely trending within 24h of birth —
+#     so the same ~2,000-model scan was being thrown away. HF discovery had produced 78 events
+#     total, against 32,971 for GitHub.
+# Re-seeing an item is free: `source_event_uid` dedupes on insert, which is why collect reports
+# events_new rather than events_seen. The cost is extra API calls on the date-ordered sources;
+# watch GitHub's rate limit if TRACK_LIMIT is also raised.
+run "collect"  uv run seismo collect --source all --window "${COLLECT_WINDOW:-3d}"
 run "track"    uv run seismo track  --source github --limit "$TRACK_LIMIT"
 run "track-hf" uv run seismo track  --source hf
 run "resolve"  uv run seismo resolve
@@ -67,8 +79,14 @@ if [ "${SKIP_ENRICH:-0}" != "1" ]; then
   run "enrich-hn"       uv run seismo enrich-hn
   run "enrich-readmes"  uv run seismo enrich-readmes --missing --limit "${README_LIMIT:-300}"
   run "enrich-hf"       uv run seismo enrich-hf --limit "${HF_CARD_LIMIT:-300}"
+  # Team enrichment (WIKIDATA_ENRICHMENT_PLAN.md): who is behind each paper/repo/model —
+  # employer history, founders. Un-enriched entities only, so coverage completes over days.
+  run "enrich-wikidata" uv run seismo enrich-wikidata --limit "${WIKIDATA_LIMIT:-200}"
   run "resolve-enrich"  uv run seismo resolve
 fi
+# Graph edges (authored_by/built_by/cited/depends_on + wikidata team edges) — was manual-only;
+# without this the correlation graph silently goes stale as new evidence lands.
+run "derive-edges" uv run seismo derive-edges
 run "snapshot" uv run seismo snapshot
 run "score"    uv run seismo score
 if [ "${SKIP_COMPREHEND:-0}" != "1" ]; then

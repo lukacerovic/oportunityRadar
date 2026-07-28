@@ -199,9 +199,80 @@ def _find_or_create(
     return ent
 
 
+_WIKIDATA_LABEL_PROPS = {
+    # claim property -> display key on the entity's attrs['wikidata'] card
+    "P159": "headquarters",
+    "P452": "industry",
+    "P106": "occupation",
+    "P166": "awards",
+}
+
+
+def _wikidata_card(p: dict[str, Any]) -> dict[str, Any]:
+    """Compact display card from a ``wikidata_entity`` payload — what the graph node panel shows
+    when a person/org node is clicked (description, website, HQ, industry, awards, dates)."""
+    claims = p.get("claims") or {}
+
+    def first_value(prop: str) -> str | None:
+        for entry in claims.get(prop) or []:
+            if entry.get("value"):
+                return str(entry["value"])
+        return None
+
+    def first_year(prop: str) -> str | None:
+        for entry in claims.get(prop) or []:
+            time = str(entry.get("time") or "")
+            if time:
+                return time.lstrip("+")[:4]
+        return None
+
+    def year(entry: dict[str, Any], key: str) -> str:
+        return str(entry.get(key) or "").lstrip("+")[:4]
+
+    # Job titles: P39 "position held" ("CTO — OpenAI (2022–2024)") plus any role-qualified
+    # P108 employments. This is where "what was their job there" lives — the employment EDGE
+    # carries only the relationship; the title belongs to the person's card.
+    positions: list[str] = []
+    for entry in claims.get("P39") or []:
+        title = entry.get("label")
+        if not title:
+            continue
+        text = str(title)
+        if entry.get("of_label"):
+            text += f" — {entry['of_label']}"
+        span = "–".join(s for s in (year(entry, "start"), year(entry, "end")) if s)
+        if span:
+            text += f" ({span})"
+        positions.append(text)
+    for entry in claims.get("P108") or []:
+        if entry.get("role_label") and entry.get("label"):
+            positions.append(f"{entry['role_label']} — {entry['label']}")
+
+    card: dict[str, Any] = {"qid": p.get("qid"), "description": p.get("description") or None}
+    if positions:
+        card["positions"] = positions[:8]
+    card["website"] = first_value("P856")
+    card["inception"] = first_year("P571")
+    card["dissolved"] = first_year("P576")
+    card["employees"] = first_value("P1128")
+    for prop, key in _WIKIDATA_LABEL_PROPS.items():
+        labels = [str(e["label"]) for e in claims.get(prop) or [] if e.get("label")]
+        if labels:
+            card[key] = labels[:6]
+    return {k: v for k, v in card.items() if v}
+
+
 def _absorb_payload(ent: _Ent, event: RawEvent) -> None:
     """Fold an event's descriptive text + owner into the entity for category assignment."""
     p = event.payload
+    if event.source == "wikidata":
+        # Display card for the graph node panel — merged, so a re-fetch refreshes it.
+        ent.attrs["wikidata"] = _wikidata_card(p)
+        # The HF handle an org was resolved from sticks to the ENTITY: a later re-fetch of the
+        # same org via the QID path carries no org_handle, and derive-edges' developed_by
+        # (model → org) linkage must survive that.
+        if p.get("org_handle"):
+            ent.attrs["hf_org_handle"] = p["org_handle"]
     chunks = [
         str(p.get("title") or ""),
         str(p.get("description") or ""),

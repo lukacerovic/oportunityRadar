@@ -1,0 +1,111 @@
+1. Radar (/) — the watchlist
+
+The landing grid of every tracked entity, ranked by momentum, then velocity. Header shows {N} tracked entities · as of {date}. The filter pills (all / breakout / accelerating / simmering / fading / dormant) subset by momentum state, with a count badge per state.
+
+Each card shows:
+- Name + a subtitle line Category · entity_type (e.g. Inference Runtime · project).
+- State chip (top-right) — the momentum state, colored on a 5-point "heat" scale:
+  - 🟢 Breakout — the hottest; velocity + breadth + promotions all firing.
+  - 🩵 Accelerating — sustained upward velocity.
+  - 🔵 Simmering — some heat, not yet acceleration (also the cap for young/"provisional" cohorts).
+  - 🟠 Fading — was hot, now cooling (velocity fell for 14d or inactive 30d).
+  - ⚫ Dormant — flat/quiet (most entities, until the daily heartbeat builds history).
+  - A ·prov tag means provisional: the entity's cohort is still warming up, so the state is tentative and can never "spend" a brief.
+- One-liner — the headline from its comprehension card (or "No comprehension card yet").
+- Velocity — the entity's growth-velocity percentile within its category cohort (e.g. 82% = faster than 82% of its peers). This is the core "is it moving" number.
+- Stage — its highest maturity rung reached (see the ladder in #2).
+- Sparkline — a mini trend of its headline metric (usually GitHub stars).
+
+Clicking a card opens the dossier (#2).
+
+---
+2. Entity dossier (/entity/[id]) — one entity in full
+
+The header repeats name + state chip, then a metadata row: category, owner, first-seen date, tracking tier (active/slow/archived — how aggressively we re-poll it), and its anchors (github:owner/repo, arxiv:… — the registry IDs proving identity).
+
+KPI row (four tiles):
+- Velocity Percentile — same cohort-relative velocity as on the card, "within cohort."
+- Momentum — the state word, plus provisional vs committed.
+- Maturity — highest ladder stage, with "N rungs reached."
+- Cohort Size — how many peer entities it's ranked against (the percentile's denominator).
+
+Comprehension Card panel — the LLM-generated "what is this" summary (checkpoint 1). Header shows v{version} · {model} · confidence. Body:
+- Headline (what_it_is) and a Function line.
+- The Pitch (green sub-panel): claimed_advantage + what it "replaces / enables."
+- Open Questions (amber sub-panel): what the evidence does not yet establish — the design deliberately puts the skepticism next to the pitch.
+- Footer: Category and who is behind it. Flags like "category disputed" or a pending/failed status appear here.
+- If there are multiple card versions, a note flags that "comprehension drift is itself a signal" (a project whose described function changes is pivoting).
+
+Metric trajectory (left) — a chart of the headline metric (e.g. stars) over time, with maturity promotions marked as dots on the line.
+
+Maturity Ladder (right) — the 6 rungs, lit green up to the highest reached, dated: idea_paper → public_code → usable_artifact → distribution → commercialization → institutional_adoption. This is "how far from paper to product."
+
+---
+3. Changes (/changes/[day]) — the daily diff
+
+A deterministic, templated log of what moved on a given day (no LLM — "boring on purpose"). Header: What moved on {day} and a {total} change(s) count; a day-switcher lets you page back.
+
+Calibration strip (top, when data exists) — the system grading its own past calls:
+- Breakout survival — share of breakout calls ≥90 days old still alive; healthy ≥50% (green if so).
+- Fade false-alarm — share of "fading" calls that re-accelerated within 60 days; lower is better.
+- Each shows n= the sample size. These read —/n=0 until the system has ~a quarter of history.
+
+Grouped change rows, each an entity-linked sentence:
+- Gate — week rollup (Mondays): the week's gate summary.
+- Briefs published / drafted: brief lifecycle events.
+- Momentum ↑ / ↓: state transitions (heated up / cooled).
+- Maturity promotions: an entity climbed a ladder rung.
+- New — survived the 7-day gate: an entity that's been alive 7 days with enough evidence (a genuine new arrival, not noise).
+
+Every row links to that entity's dossier.
+
+---
+4. Significance Gate (/gate/[week]) — why these few, not the rest
+
+The deterministic weekly selector (no LLM) that decides which rising entities are worth a brief. The scoring rule is shown at top:
+
+Score = M × (0.4 + 0.6·R) × (0.4 + 0.6·N)
+
+Top-right shows {passed}/{budget} — briefs allotted this week. A week-switcher pages across weeks.
+
+Each row (grouped into Passed and Suppressed) shows the entity, Category · type · peaked {state}, and three factor tiles plus the final score:
+- M — Momentum: peak state × velocity (how hot).
+- R — Reach: exposure-map coverage. Hover shows N line(s) and whether a core line is touched. R is 1.0 if it hits ≥3 revenue lines or a core one, else 0.5.
+- N — Novelty: a cohort-pioneer proxy (is it early/novel vs. peers).
+- Score: the combined number; the top few pass.
+
+Suppression reasons (colored tags with tooltips) tell you why something was withheld — the point is auditability:
+- No map surface (unmapped_reach) — its category touches no company in the exposure map; hard-excluded.
+- Card pending — no comprehension card yet; the gate never briefs an un-summarized entity.
+- Below weekly cut (budget) — eligible and scored, but outside the top-K for the week.
+
+Map gaps (bottom) — categories that have rising entities but no exposure-map coverage, with counts. This is the prioritized worklist for expanding the map so those entities become brief-able.
+
+---
+5. Impact Briefs (/brief and /brief/[id])
+
+The inbox (/brief) — every drafted brief: "who is exposed to each rising entity, how, and what to watch." The tagline is the guardrail: we explain exposure, never prices, and every brief is human-reviewed before publish. Each row:
+- Entity name, v{version}, and a status chip: Draft — needs review, Published, Rejected, Failed validation, or Pending (budget).
+- A one-line summary, the mechanism tags, and an exposures count.
+
+A brief detail (/brief/[id]) — the full thesis. Header: entity, version, status, plus as of {date} · {model} · confidence · horizon. If rejected, the reviewer's reason shows. Then the sections:
+- Mechanism tags + Summary — the mechanisms at play (substitution / cost_collapse / commoditization / enablement / dependency_risk) and the prose thesis.
+- Exposures (table) — Party (a ticker like NVDA, or a sector class), Revenue line affected, Direction (🔴 negative / 🟢 positive / 🟠 ambiguous — ambiguous is a legitimate finding), and Magnitude (marginal / material / structural).
+- Transmission path — the explicit numbered chain from the entity to each affected revenue line (from → to · effect). No hand-waving allowed.
+- Counter-mechanism — the strongest case against the thesis, stated fairly (e.g. the Jevons paradox). The system enforces this must be a real argument, "a one-sided brief is marketing."
+- Observables — dated falsifiers that would settle the thesis. Each tagged system (machine-measurable, e.g. metric: hf_downloads_30d) or manual, with a horizon and "thesis holds ⇒ {direction}."
+- Evidence — the count/ids of raw events the brief is built on.
+- Review bar — publish / reject-with-reason actions (bearer-gated).
+- Forward scoring (only once published) — the quarterly retrospective: did the exposure materialize, did a falsifier trip, was the counter-mechanism the better story? System observables auto-evaluate.
+
+---
+6. Merge Queue (/queue) — human identity triage
+
+Where a person resolves ambiguous identity matches — cases where the automatic rules (R4–R5, name-backed) think two entities might be the same thing but aren't confident enough to auto-merge. Header shows {done} decided · {left} left.
+
+Each item presents two candidate entities side by side (Entity A ≟ Entity B), each a clickable card with name, category · type, and owner. Above them: the rule that proposed the match and a confidence %. You then choose:
+- Merge (M) — they're the same entity; fold them together.
+- Reject (N) — they're genuinely different; keep separate.
+- Skip (S) — decide later.
+
+Keyboard-driven (M/N/S) for fast throughput; each decision POSTs to the merge-queue API and advances. This is the safety valve on entity resolution — automation handles the high-confidence cases, humans arbitrate the rest.
