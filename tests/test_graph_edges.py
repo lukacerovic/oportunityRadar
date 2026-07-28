@@ -506,6 +506,123 @@ def test_work_event_links_developer_and_tracked_repo(clean_db: Session) -> None:
     assert _entity_by_anchor(session, "github", "nobody/untracked-repo") is None
 
 
+# --- lineage: fine_tuned_from + model->paper cited ---------------------------
+
+
+def test_lineage_fine_tuned_from_tracked_base_only(clean_db: Session) -> None:
+    session = clean_db
+    derived = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    base = _entity(session, "meta/base", etype="model", anchors={"hf": "meta/base"})
+    raw = _event(
+        session,
+        derived,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": ["base_model:meta/base", "base_model:nobody/untracked"],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.fine_tuned_from == 1, "only the tracked base is linked, never the untracked one"
+    edges = _edges(session, "fine_tuned_from")
+    assert len(edges) == 1
+    assert edges[0]["src_entity_id"] == derived and edges[0]["dst_entity_id"] == base
+    assert edges[0]["evidence_refs"] == [raw]
+    # The untracked base was never minted as an entity.
+    assert _entity_by_anchor(session, "hf", "nobody/untracked") is None
+
+
+def test_lineage_qualified_base_model_tags_parse(clean_db: Session) -> None:
+    """Qualified forms (finetune/quantized/merge/adapter) and mixed case all resolve to the same
+    lowercased HF id — and dedupe to a single edge per (model, base)."""
+    session = clean_db
+    derived = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    base = _entity(session, "meta/base", etype="model", anchors={"hf": "meta/base"})
+    _event(
+        session,
+        derived,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": [
+                "base_model:finetune:Meta/Base",
+                "base_model:quantized:meta/base",
+                "base_model:merge:meta/base",
+                "base_model:adapter:meta/base",
+            ],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.fine_tuned_from == 1, "all qualified forms collapse to one edge to the same base"
+    edges = _edges(session, "fine_tuned_from")
+    assert len(edges) == 1
+    assert edges[0]["src_entity_id"] == derived and edges[0]["dst_entity_id"] == base
+
+
+def test_lineage_arxiv_tag_mints_paper_and_cites(clean_db: Session) -> None:
+    session = clean_db
+    model = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    raw = _event(
+        session,
+        model,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": ["arxiv:2405.04434", "arxiv:2405.04434", "region:us"],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.cited == 1, "the repeated arxiv tag dedupes to one edge"
+    assert stats.papers_created == 1
+    paper = _entity_by_anchor(session, "arxiv", "2405.04434")
+    assert paper is not None
+    edges = _edges(session, "cited")
+    assert len(edges) == 1
+    assert edges[0]["src_entity_id"] == model and edges[0]["dst_entity_id"] == paper
+    assert edges[0]["evidence_refs"] == [raw]
+
+
+def test_lineage_rerun_is_idempotent(clean_db: Session) -> None:
+    session = clean_db
+    derived = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    _entity(session, "meta/base", etype="model", anchors={"hf": "meta/base"})
+    _event(
+        session,
+        derived,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": ["base_model:finetune:meta/base", "arxiv:2405.04434"],
+        },
+    )
+    session.flush()
+
+    first = derive_edges(session, AS_OF)
+    session.flush()
+    n_after_first = len(_edges(session))
+
+    second = derive_edges(session, AS_OF)
+    session.flush()
+
+    assert first.fine_tuned_from == second.fine_tuned_from == 1
+    assert first.cited == second.cited == 1
+    assert second.papers_created == 0, "the paper anchor already exists on re-run"
+    assert n_after_first == len(_edges(session)), "no duplicate edges on re-run"
+
+
 # --- idempotency ------------------------------------------------------------
 
 

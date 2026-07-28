@@ -342,7 +342,7 @@ export function GraphView({
       <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1 text-[11px]">
         {(
           [
-            [DETERMINISTIC_COLOR, "Project links (authored / built / cited / depends / developed)"],
+            [DETERMINISTIC_COLOR, "Project links (authored / built / cited / depends / developed / fine-tuned)"],
             [EMPLOYMENT_COLOR, "Employment & founders"],
             [EDUCATION_COLOR, "Education & advisors"],
             [WORK_COLOR, "Notable work"],
