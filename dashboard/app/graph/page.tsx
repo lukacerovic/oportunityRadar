@@ -14,7 +14,9 @@ export default async function GraphPage({
 }: {
   searchParams: { trending?: string };
 }) {
-  const trending = searchParams.trending === "true";
+  // Default to trending-only — the full snapshot is thousands of long-tail nodes; opt out
+  // explicitly with ?trending=false to see everything.
+  const trending = searchParams.trending !== "false";
   let data: GraphResponse;
   try {
     data = await getGraph({ trending });
@@ -43,14 +45,14 @@ export default async function GraphPage({
             </p>
           </div>
           <Link
-            href={trending ? "/graph" : "/graph?trending=true"}
-            title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs."
+            href={trending ? "/graph?trending=false" : "/graph?trending=true"}
+            title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs. On by default."
             className={`rounded-full border px-3 py-1 text-xs transition ${
               trending ? "text-bg" : "text-muted hover:text-text"
             }`}
             style={trending ? { background: "#A78BFA", borderColor: "#A78BFA" } : { borderColor: "#1E2A2C" }}
           >
-            🔥 Trending only
+            {trending ? "🔥 Trending only" : "Show all"}
           </Link>
         </div>
 
@@ -59,7 +61,7 @@ export default async function GraphPage({
             {trending ? (
               <>
                 No entity has passed the gate or is breakout/accelerating yet — nothing to show in
-                trending mode. <Link href="/graph" className="text-accent hover:underline">View the full graph →</Link>
+                trending mode. <Link href="/graph?trending=false" className="text-accent hover:underline">View the full graph →</Link>
               </>
             ) : (
               <>
