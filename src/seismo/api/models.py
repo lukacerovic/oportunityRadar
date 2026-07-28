@@ -201,6 +201,7 @@ class EntityDossier(BaseModel):
     provisional: bool
     cohort_n: int | None
     description: str | None  # aggregated readable text we've collected about it
+    tags: list[str] = []  # human-readable registry tags (HF tags / GitHub topics), latest event
     themes: list[str]  # research/market themes this entity belongs to
     maturity: list[MaturityRung]
     metrics: list[MetricSeries]

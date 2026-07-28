@@ -240,13 +240,60 @@ def test_dossier_exposes_readable_sources(clean_db: Session) -> None:
     session.flush()
 
     d = _client(session).get(f"/entities/{eid}").json()
-    assert d["description"] == "Kimi K3 is a model."
+    # The latest deep-content event (launch_page) beats the attrs['text'] evidence blob —
+    # the dossier shows readable content, not the LLM's concatenated soup.
+    assert d["description"] == "Kimi K3 is a 1T MoE model."
     kinds = {e["kind"] for e in d["evidence"]}
     assert kinds == {"Hacker News", "Launch page"}  # the model_snapshot is filtered out
     hn = next(e for e in d["evidence"] if e["kind"] == "Hacker News")
     assert hn["score"] == 641 and hn["url"] == "https://kimi.com"
     launch = next(e for e in d["evidence"] if e["kind"] == "Launch page")
     assert launch["text"] == "Kimi K3 is a 1T MoE model."
+
+
+def test_dossier_tags_keep_readable_drop_machine(clean_db: Session) -> None:
+    """HF tags surface as chips: machine tags (arxiv:/base_model:/region:) are dropped — they
+    live elsewhere (graph edges, anchors) — while license: stays, it's information."""
+    session = clean_db
+    t0 = datetime(2024, 1, 1, tzinfo=UTC)
+    eid = _entity(session, "moonshotai/kimi-k3", created=t0, attrs={"anchors": {"hf": "moonshotai/kimi-k3"}})
+    rid = int(
+        session.execute(
+            text(
+                "INSERT INTO raw_events"
+                " (source, source_event_uid, event_type, occurred_at, payload)"
+                " VALUES ('hf', :uid, 'model_discovered', :o, CAST(:p AS JSONB)) RETURNING id"
+            ),
+            {
+                "uid": f"hf-{next(_UID)}",
+                "o": t0,
+                "p": _json(
+                    {
+                        "id": "moonshotai/kimi-k3",
+                        "tags": [
+                            "moe",
+                            "license:mit",
+                            "arxiv:2401.00001",
+                            "base_model:finetune:acme/base",
+                            "region:us",
+                            "moe",
+                        ],
+                    }
+                ),
+            },
+        ).scalar_one()
+    )
+    session.execute(
+        text(
+            "INSERT INTO entity_links (entity_id, raw_event_id, rule, confidence)"
+            " VALUES (:e, :r, 'attach', 1.0)"
+        ),
+        {"e": eid, "r": rid},
+    )
+    session.flush()
+
+    d = _client(session).get(f"/entities/{eid}").json()
+    assert d["tags"] == ["moe", "license:mit"]
 
 
 def test_dossier_exposes_latest_community_research(clean_db: Session) -> None:

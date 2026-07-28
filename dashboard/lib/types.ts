@@ -110,6 +110,7 @@ export interface EntityDossier {
   provisional: boolean;
   cohort_n: number | null;
   description: string | null;
+  tags: string[];
   themes: string[];
   maturity: MaturityRung[];
   metrics: MetricSeries[];

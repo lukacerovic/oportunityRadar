@@ -3,69 +3,7 @@
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import type { GraphExplanation } from "@/lib/types";
-
-// Markdown-lite: the narration uses headings, bullets, **bold** and `code` — render those
-// without pulling in a markdown dependency.
-function inline(text: string): React.ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return (
-        <strong key={i} className="font-semibold text-text">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code key={i} className="rounded bg-card-hover px-1 text-[11px] text-accent">
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    return part;
-  });
-}
-
-function Markdown({ text }: { text: string }) {
-  const blocks: React.ReactNode[] = [];
-  let bullets: string[] = [];
-  const flush = (key: number) => {
-    if (!bullets.length) return;
-    blocks.push(
-      <ul key={`ul-${key}`} className="mb-2 list-disc space-y-1 pl-4">
-        {bullets.map((b, i) => (
-          <li key={i}>{inline(b)}</li>
-        ))}
-      </ul>
-    );
-    bullets = [];
-  };
-  text.split("\n").forEach((raw, i) => {
-    const line = raw.trim();
-    if (line.startsWith("- ") || line.startsWith("* ")) {
-      bullets.push(line.slice(2));
-      return;
-    }
-    flush(i);
-    if (!line) return;
-    const heading = line.match(/^#{1,4}\s+(.*)$/);
-    if (heading) {
-      blocks.push(
-        <h4 key={i} className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide text-text first:mt-0">
-          {inline(heading[1])}
-        </h4>
-      );
-    } else {
-      blocks.push(
-        <p key={i} className="mb-2">
-          {inline(line)}
-        </p>
-      );
-    }
-  });
-  flush(-1);
-  return <div className="text-xs leading-relaxed text-muted">{blocks}</div>;
-}
+import { Markdown } from "@/components/Markdown";
 
 type State =
   | { kind: "loading" }

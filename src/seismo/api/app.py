@@ -345,9 +345,26 @@ def dossier(
         ).all()
     ]
 
-    description = (attrs.get("text") or "").strip() or None
+    # "What we collected": prefer the latest deep-content enrichment event (a readme / launch
+    # page — clean markdown the UI can render) over attrs['text'], which is the LLM evidence
+    # blob (title + tags + text concatenated) and reads as soup when shown raw.
+    readme = session.execute(
+        text(
+            """
+            SELECT r.payload->>'text'
+            FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
+            WHERE l.entity_id = :id AND l.rule = 'attach' AND r.occurred_at <= :as_of
+              AND r.event_type IN ('model_readme', 'repo_readme', 'launch_page')
+              AND COALESCE(r.payload->>'text', '') <> ''
+            ORDER BY r.occurred_at DESC LIMIT 1
+            """
+        ),
+        {"id": canonical, "as_of": as_of},
+    ).scalar()
+    description = str(readme or attrs.get("text") or "").strip() or None
     if description:
-        description = description[:2000]
+        description = description[:6000]
+    tags = _display_tags(session, canonical, as_of)
 
     return m.EntityDossier(
         id=canonical,
@@ -363,6 +380,7 @@ def dossier(
         provisional=bool(inputs.get("provisional", False)),
         cohort_n=inputs.get("cohort_n"),
         description=description,
+        tags=tags,
         themes=themes,
         maturity=maturity,
         metrics=metrics,
@@ -438,6 +456,39 @@ def _dt_or_none(value: Any) -> datetime | None:
         return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     except ValueError:
         return None
+
+
+def _display_tags(session: Session, canonical: int, as_of: datetime) -> list[str]:
+    """Human-readable tags from the newest attached event that carries any (HF ``tags`` or
+    GitHub ``topics``). Machine tags (``base_model:``/``arxiv:``/``region:``…) are dropped —
+    they live elsewhere (graph edges, anchors); ``license:`` is kept, it's information."""
+    rows = session.execute(
+        text(
+            """
+            SELECT r.payload->'tags' AS tags, r.payload->'topics' AS topics
+            FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
+            WHERE l.entity_id = :id AND l.rule = 'attach' AND r.occurred_at <= :as_of
+              AND (jsonb_typeof(r.payload->'tags') = 'array'
+                   OR jsonb_typeof(r.payload->'topics') = 'array')
+            ORDER BY r.occurred_at DESC LIMIT 5
+            """
+        ),
+        {"id": canonical, "as_of": as_of},
+    ).mappings()
+    for row in rows:
+        tags = row["tags"] if isinstance(row["tags"], list) else []
+        topics = row["topics"] if isinstance(row["topics"], list) else []
+        raw = [t for t in tags + topics if isinstance(t, str)]
+        out: list[str] = []
+        for tag in raw:
+            prefix, sep, _ = tag.partition(":")
+            if sep and prefix != "license":
+                continue
+            if tag not in out:
+                out.append(tag)
+        if out:
+            return out[:20]
+    return []
 
 
 def _evidence(session: Session, canonical: int, as_of: datetime) -> list[m.EvidenceItem]:
