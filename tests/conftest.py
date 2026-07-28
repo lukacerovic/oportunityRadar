@@ -36,6 +36,7 @@ _CLEAR_TABLES = [
     "entity_graph_edges",
     "entity_semantic_edges",
     "discovery_triage_decisions",
+    "content_sanity_checks",
     "entities",
     "raw_events",
 ]

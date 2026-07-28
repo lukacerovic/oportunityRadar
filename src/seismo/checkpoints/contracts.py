@@ -198,3 +198,32 @@ def council_tool_schema() -> dict[str, Any]:
         schema["required"].remove("role")
     schema["additionalProperties"] = False
     return schema
+
+
+SanityVerdict = Literal["ok", "flagged", "reject"]
+
+
+class ContentSanityItem(BaseModel):
+    """One content-quality verdict on a freshly-collected raw event (the sanity checkpoint,
+    ``checkpoints/sanity.py``). ``cleaned_text`` is only ever a cosmetic rewrite of what the source
+    already said — never fabricated content — and is null whenever the raw text needs no cleanup or
+    the verdict is ``reject``."""
+
+    raw_event_id: int
+    verdict: SanityVerdict
+    reasoning: str = Field(min_length=1)
+    cleaned_text: str | None = None
+
+
+class ContentSanityBatch(BaseModel):
+    """One LLM call's worth of sanity verdicts — batched (not one call per row) because this
+    checkpoint runs over every freshly-collected text event, not a handful of triggered entities."""
+
+    items: list[ContentSanityItem]
+
+
+def sanity_tool_schema() -> dict[str, Any]:
+    """JSON schema for the forced sanity-batch tool call."""
+    schema = ContentSanityBatch.model_json_schema()
+    schema["additionalProperties"] = False
+    return schema

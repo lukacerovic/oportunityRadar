@@ -32,10 +32,12 @@ logger = logging.getLogger(__name__)
 CARD_TOOL_NAME = "emit_card"
 BRIEF_TOOL_NAME = "emit_brief"
 COUNCIL_TOOL_NAME = "emit_verdict"
+SANITY_TOOL_NAME = "emit_sanity_batch"
 COMMUNITY_TOOL_NAME = "emit_community_verdict"
 _MAX_TOKENS = 2048
 _BRIEF_MAX_TOKENS = 3072  # the brief schema (transmission path + exposures + observables) is larger
 _COUNCIL_MAX_TOKENS = 768  # a verdict is small: stance + confidence + one short argument
+_SANITY_MAX_TOKENS = 2048  # a batch of ~10 short verdicts, occasionally with a cleaned_text rewrite
 _COMMUNITY_MAX_TOKENS = 2048  # a short verdict: sentiment + a handful of pros/cons/points
 
 # Rough per-MTok (input, output) USD, for cost logging + the budget ceiling only. Confirm against
@@ -122,6 +124,30 @@ def complete_council(
         tool_name=COUNCIL_TOOL_NAME,
         tool_description="Return this council member's verdict on the impact brief.",
         max_tokens=_COUNCIL_MAX_TOKENS,
+    )
+
+
+def complete_sanity(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+    purpose: str = "live",
+) -> LLMResult:
+    """Produce a batch of content-sanity verdicts as structured JSON (``checkpoints/sanity.py``).
+    Same forced-tool-call discipline as :func:`complete_card`; ``fallback`` is the deterministic
+    all-``ok`` batch the ``mock`` provider returns verbatim — mock never rejects content it hasn't
+    actually looked at."""
+    return _complete(
+        system,
+        user,
+        schema,
+        fallback=fallback,
+        purpose=purpose,
+        tool_name=SANITY_TOOL_NAME,
+        tool_description="Return one content-sanity verdict per raw_event_id given.",
+        max_tokens=_SANITY_MAX_TOKENS,
     )
 
 

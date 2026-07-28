@@ -2,7 +2,8 @@
 # scripts/daily.sh — Seismograph daily heartbeat.
 #
 # Runs the FULL daily monitoring cycle in the correct order (HANDOFF §8, COMMANDS.md §1):
-#   collect → track → resolve → snapshot → score → comprehend → gate → brief → changes
+#   collect → track → resolve → enrich → sanity → snapshot → score → comprehend → gate → brief
+#   → changes
 # i.e. discover → measure → identify → momentum → AI cards → pick significant → draft impact briefs
 # → record deltas. This is the one command to run each day for the full analysis.
 #
@@ -84,6 +85,10 @@ if [ "${SKIP_ENRICH:-0}" != "1" ]; then
   run "enrich-wikidata" uv run seismo enrich-wikidata --limit "${WIKIDATA_LIMIT:-200}"
   run "resolve-enrich"  uv run seismo resolve
 fi
+# Content-sanity checkpoint: judges today's freshly-collected README/model-card/launch/discussion/
+# abstract text for legibility and on-topic-ness (never mutates raw_events, doc 02 §1). Runs after
+# collection/enrichment so there's actual text to check; own budget, so it can't starve comprehend.
+run "sanity" uv run seismo sanity --limit "${SANITY_LIMIT:-500}"
 # Graph edges (authored_by/built_by/cited/depends_on + wikidata team edges) — was manual-only;
 # without this the correlation graph silently goes stale as new evidence lands.
 run "derive-edges" uv run seismo derive-edges

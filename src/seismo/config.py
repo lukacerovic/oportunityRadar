@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     breakout_callouts_per_day: int = 1
     breakout_min_breadth: int = 2  # → 3 once the 4th evidence type (pricing) ships
     llm_budget_usd: float = 30.0
+    sanity_llm_budget_usd: float = 5.0  # separate ceiling — sanity runs over every scraped row, not
+    # a handful of triggered entities, so it must not be able to starve comprehend/brief's budget
     cohort_min_size: int = 8
     cohort_warmup_state_cap: str = "simmering"
     tracking_archive_days: int = 90

@@ -41,6 +41,7 @@ CORE_TABLES = {
     "discovery_triage_decisions",
     "entity_semantic_edges",
     "council_verdicts",
+    "content_sanity_checks",
 }
 
 

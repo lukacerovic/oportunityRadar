@@ -488,6 +488,27 @@ def comprehend(
         )
 
 
+@app.command()
+def sanity(
+    as_of: str = typer.Option(None, help="ISO date; default now."),
+    limit: int = typer.Option(None, help="Cap candidates this run (cost control; default 500)."),
+) -> None:
+    """Content-sanity checkpoint — judges freshly-collected README/model-card/launch/discussion/
+    abstract text for legibility and on-topic-ness (never mutates raw_events). Provider pluggable;
+    dev/CI = mock ($0). Not a collector step (doc 03 §1: collectors record, they never interpret) —
+    run this after collection/enrichment, e.g. in daily.sh."""
+    from seismo.checkpoints.sanity import run_sanity
+    from seismo.db import session_scope
+
+    when = _parse_as_of(as_of)
+    with record_pipeline_run("sanity", when):
+        with session_scope() as session:
+            stats = run_sanity(session, when, limit=limit)
+        typer.echo(
+            f"[sanity] provider={settings.llm_provider} as_of={when.date()} — {stats.as_note()}"
+        )
+
+
 @app.command(name="load-map")
 def load_map_cmd(
     path: str = typer.Option("exposure_map", help="Directory of company YAML files."),

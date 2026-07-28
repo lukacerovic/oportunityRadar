@@ -65,7 +65,7 @@ export default async function GraphPage({
             </form>
             <Link
               href={trending && !q ? "/graph?trending=false" : "/graph"}
-              title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs."
+              title="Only entities that passed the significance gate or are breakout/accelerating, plus their direct neighbors — cuts long-tail clutter like citation-only paper stubs. On by default."
               className={`rounded-full border px-3 py-1 text-xs transition ${
                 trending && !q ? "text-bg" : "text-muted hover:text-text"
               }`}
@@ -75,7 +75,7 @@ export default async function GraphPage({
                   : { borderColor: "#1E2A2C" }
               }
             >
-              🔥 Trending only
+              {trending && !q ? "🔥 Trending only" : "Show all"}
             </Link>
           </div>
         </div>
