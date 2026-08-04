@@ -6,6 +6,40 @@ and did it matter.***
 
 ---
 
+## The product, in one paragraph
+
+A dated public record of technology categories forming — when each one formed, who saw it first, how
+early they saw it, and whether it turned out to be real. Every entry is written before the outcome is
+known and graded afterwards against measurements the system already collects.
+
+**The archive is the product, not the dashboard.** A dashboard can be rebuilt in a month by anyone.
+A three-year record of dated calls cannot be rebuilt at all — a competitor starting later cannot
+retroactively have made them. Time is the only input that cannot be bought, and it is the only one
+this design depends on.
+
+That is also why the grading rules must be conservative from day one. A record that overclaims is
+worth less than no record, because its value is entirely borrowed from being trusted.
+
+### v1 — what is actually in it
+
+Three things, no more:
+
+1. **A wave forms** and is dated (`WAVE_PLAN.md`).
+2. **The earliest credible mention** of it is found in text already collected, with its author handle
+   and timestamp — stage 1 below.
+3. **Ninety days later the outcome is measured** cohort-relative from usage data already collected —
+   stage 1b below.
+
+One page renders those three as a timeline. That is the whole of v1.
+
+**Explicitly cut from v1** — each is defensible later, none is needed to produce the artifact: press
+timestamps (stage 2), market data and tickers (stage 3), the frozen-`as_of` council role,
+cross-platform observer identity, and LLM-authored wave labels. Nothing here blocks on any of them.
+
+**The one real dependency:** all of this stands on authored, timestamped text. `src/seismo/community/`
+is complete and has never been run (`entity_community_research`, 0 rows). Until it runs, stage 1 has
+almost nothing to search.
+
 ## The claim this feature exists to make
 
 ```
@@ -177,6 +211,16 @@ The subtracted terms are the things we openly cannot predict. The residual is re
 Requires a market data source, which does not exist in the system today — and note that
 `exposure_map/` financials are placeholders that `STATE.md` says never to quote as real. Same
 Phase-0 discipline applies.
+
+*Side note, not a direction.* Half of this bridge is already built and unused. The shipped Wikidata
+layer (`WIKIDATA_ENRICHMENT_PLAN.md`, 10,283 `authored_by` edges and 9,372 person entities on its
+first run) yields `employed_by` / `formerly_at` / `founded` plus an ownership chain
+(`subsidiary_of`, `owned_by`, parent org, investors) — an evidence-derived path from a technology to
+a company, where `exposure_map/` does the same thing by hand. `KEPT_PROPS` in
+`collectors/wikidata.py` omits `P249` (ticker symbol) and `P414` (stock exchange); adding them would
+close the last hop. Cheap, but it belongs to stage 3, and stage 3 is last for good reason. The same
+wrong-edge risk applies as everywhere in that layer — the namesake incident recorded in the Wikidata
+plan is the cautionary case.
 
 **Honest limit:** with 24 briefs and ~18 council verdicts, this is statistically underpowered and
 will stay that way for a long time. For the first year it is a dated diary, not evidence. A diary
