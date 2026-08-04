@@ -39,6 +39,7 @@ the other layer docs. Reading order: `00 → 01 → 13 → 14 → 02…12`.
 | [DECISIONS.md](DECISIONS.md) | Standing decisions and why |
 | [GRAPH_PLAN.md](GRAPH_PLAN.md) · [WIKIDATA_ENRICHMENT_PLAN.md](WIKIDATA_ENRICHMENT_PLAN.md) | Graph roadmap |
 | [WAVE_PLAN.md](WAVE_PLAN.md) | Wave Radar — convergence detection (planned, not built) |
+| [LEAD_TIME_PLAN.md](LEAD_TIME_PLAN.md) | Lead time and early observers (planned, not built) |
 | [TESTING_PLAN.md](TESTING_PLAN.md) | Test strategy |
 
 ---
