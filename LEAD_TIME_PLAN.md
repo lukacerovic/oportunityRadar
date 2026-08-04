@@ -38,19 +38,25 @@ Market-adjusted measurement is stage 3 below, deliberately last, and deliberatel
 
 ## Source discipline — the rule that keeps this from sprawling
 
-The temptation with a feature like this is to bolt on more sources. The constraint:
+The temptation with a feature like this is to bolt on more sources. The constraint is not "how
+many" but **which job a source does**, and there are exactly two:
 
-> **A source earns its place here only if it carries an author and a timestamp.**
+> **Job 1 — who and when.** Finding observers requires an author and a timestamp.
+> **Job 2 — did it turn out real.** Grading observers requires measurable adoption, and here an
+> author is irrelevant. Text cannot grade itself.
 
-| Source | Carries | Useful here? |
-|---|---|---|
-| GitHub README, HF model card, arXiv abstract | artifacts | **No.** They say what was built, not who understood it first. |
-| HN comments and threads | author + timestamp | **Yes** — already collected |
-| Substack posts | author + timestamp | **Yes** — approved, not built (below) |
-| PyPI downloads, OpenRouter tokens, star counts | counts | **No.** No author, no opinion. |
+| Source | Carries | Job 1 (find) | Job 2 (grade) |
+|---|---|---|---|
+| HN comments and threads | author + timestamp | **Yes** — already collected | no |
+| Substack posts | author + timestamp | **Yes** — approved, not built (below) | no |
+| GitHub README, HF model card, arXiv abstract | artifacts | **No.** They say what was built, not who understood it first. | partial (as entity text) |
+| PyPI downloads, HF, OpenRouter tokens, stars | counts | **No.** No author, no opinion. | **Yes — the only thing that works** |
 
-Under that rule, this feature needs **one** new source, and most of what it needs is already paid for
-and idle.
+A count will never tell you who was right. It is the only thing that can tell you whether what they
+pointed at actually took hold. Both halves are required and neither substitutes for the other.
+
+Under that rule, this feature needs **one** new source for job 1, everything for job 2 is already
+collected, and most of what it needs is already paid for and idle.
 
 ### Already built, never run
 
@@ -110,6 +116,39 @@ Purely deterministic: a text search over `raw_events` with `occurred_at`, plus t
 Output per wave: earliest mention, its author handle, its source, and the lead in days.
 
 **This needs zero new sources.** It measures what the system already has.
+
+### Stage 1b — Grading an observer with usage data *(no press, no market data)*
+
+A mention is an implicit forward claim: *this thing matters*. That claim is measurable entirely
+inside the existing system, which means the observer record does **not** have to wait for stages 2
+and 3.
+
+```
+2026-06-14   HN comment mentions termaxa        →     40 downloads/wk
+2026-07-02   system detects the wave
+2026-12-14   termaxa                            → 31,000 downloads/wk
+
+             cohort (agent-framework, 0–180d) median growth:  ×2.1
+             termaxa:                                         ×775   → percentile 0.98
+```
+
+**Cohort-relative, never absolute** — the same principle that makes momentum meaningful
+(`trajectory/cohorts.py`). Mentioning LangChain is not foresight. Mentioning something at the bottom
+of its cohort that then climbs is.
+
+This is not new machinery. `memory/scoring.py` already auto-evaluates `source='system'` observables
+by comparing a metric's actual movement against a predicted direction, with `_FLAT_BAND = 0.05`
+separating direction from noise. Grading a mention is the same operation with a different subject.
+
+⚠️ **Reverse causation is the central threat.** A writer with a large audience *causes* the
+downloads they appear to predict, and would score as prescient purely on reach. Partial defense:
+measure whether the rise **persists** after the mention spike decays (e.g. level at +30d versus the
+spike itself), not the height of the spike. This does not fully solve it and should be stated as a
+known limitation wherever an observer score is displayed.
+
+⚠️ **Coverage is uneven.** PyPI is Python-only; HF covers models; npm is not collected at all. A
+wave made of JS tooling has no usage signal to grade against. Absent metrics must read as
+*unmeasurable*, never as *did not take hold*.
 
 ### Stage 2 — Press lead time
 
