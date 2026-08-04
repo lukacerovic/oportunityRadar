@@ -38,8 +38,9 @@ the other layer docs. Reading order: `00 → 01 → 13 → 14 → 02…12`.
 | [AGENT_GUARDRAIL_WAVE.md](AGENT_GUARDRAIL_WAVE.md) | A worked example of reading the graph for a real trend |
 | [DECISIONS.md](DECISIONS.md) | Standing decisions and why |
 | [GRAPH_PLAN.md](GRAPH_PLAN.md) · [WIKIDATA_ENRICHMENT_PLAN.md](WIKIDATA_ENRICHMENT_PLAN.md) | Graph roadmap |
-| [WAVE_PLAN.md](WAVE_PLAN.md) | Wave Radar — convergence detection (planned, not built) |
-| [LEAD_TIME_PLAN.md](LEAD_TIME_PLAN.md) | Lead time and early observers (planned, not built) |
+| [WAVES_HANDOFF.md](WAVES_HANDOFF.md) | **Wave Radar — how to run it, what to watch for, what's next** |
+| [WAVE_PLAN.md](WAVE_PLAN.md) | Wave Radar — the detection design |
+| [LEAD_TIME_PLAN.md](LEAD_TIME_PLAN.md) | Lead time, early observers, and the product argument |
 | [TESTING_PLAN.md](TESTING_PLAN.md) | Test strategy |
 
 ---
