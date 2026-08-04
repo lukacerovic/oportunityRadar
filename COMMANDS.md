@@ -53,6 +53,8 @@ uv run seismo derive-edges                             # 3c. typed graph edges (
                                                        #     employed_by/formerly_at/founded) for the graph page
 uv run seismo snapshot                                 # 4. rebuild the daily metric table from snapshots
 uv run seismo score                                    # 5. velocity → momentum states (dormant…breakout)
+uv run seismo waves                                    # 5b. convergences: several independent teams,
+                                                       #     same idea, same window (+ lead time, + outcome)
 uv run seismo comprehend                               # 6. AI summary cards for entities crossing the trigger
 uv run seismo gate    --week "$WEEK"                   # 7. pick which entities deserve a brief this week
 uv run seismo brief   --week "$WEEK"                   # 8. draft an impact brief for each one the gate passed
@@ -68,6 +70,7 @@ uv run seismo changes                                  # 9. record today's delta
 | 3 | `resolve` | Identity | entities + merges from the new events | Global + idempotent. Links a paper↔repo↔model into one entity (R1–R6 rules). |
 | 4 | `snapshot` | Trajectory | `entity_metrics_daily` rows | Turns raw snapshots into per-day metric values (stars, downloads, breadth). |
 | 5 | `score` | Trajectory | `momentum_states` (dormant/simmering/accelerating/breakout) | Velocity percentiles vs. peers + maturity promotions, with hysteresis. |
+| 5b | `waves` | Convergence | `wave_clusters` / `wave_members` / `wave_observations` / `wave_outcomes` | The only stage that looks at a *population*, not one entity. Deterministic, **no LLM**, no network. Also re-scores older waves as their 90-day horizons elapse, so run it daily. |
 | 6 | `comprehend` | Comprehension (AI #1) | `comprehension_cards` (what-it-is summaries) | Only cards entities that cross the trigger. Uses local Ollama ($0). |
 | 7 | `gate` | Significance | `gate_decisions` (pass / suppressed + reason) | Deterministic M×R×N pick of ≤5 briefs/week. **No LLM.** Re-runnable per week. |
 | 8 | `brief` | Impact (AI #2) | `impact_briefs` (draft) | An evidence-linked exposure brief for each passed entity. Stored **draft** for you to review. |
@@ -237,6 +240,8 @@ curl -s "http://127.0.0.1:8000/entities/5564"                      # dossier (?a
 curl -s "http://127.0.0.1:8000/gate/current"                       # this week's gate decisions
 curl -s "http://127.0.0.1:8000/briefs"                             # review inbox
 curl -s "http://127.0.0.1:8000/changes/latest"                     # latest Changes view
+curl -s "http://127.0.0.1:8000/waves"                              # detected convergences, strongest first
+curl -s "http://127.0.0.1:8000/waves/1"                            # one wave: members, early mentions, outcome
 curl -s "http://127.0.0.1:8000/search?q=agent&type=project"
 ```
 Interactive API docs (OpenAPI): open **http://127.0.0.1:8000/docs**.

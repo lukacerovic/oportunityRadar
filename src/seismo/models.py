@@ -384,6 +384,119 @@ class CouncilVerdict(Base):
     )
 
 
+class WaveCluster(Base):
+    """One detected convergence — several independent, young entities entering the same problem
+    space inside a short window (migration 0013, ``WAVE_PLAN.md``).
+
+    Distinct from every other trajectory object in that it is about a *population*, not an entity:
+    ``momentum_states`` measures how fast one thing moves, this measures how many unrelated people
+    started on the same thing at once. ``first_seen`` is never rewritten — a daily re-run matches
+    today's cluster to an existing wave by member overlap (``waves/continuity.py``), so the wave
+    keeps its identity and new members simply append with their own ``joined_at``. A wave absorbed
+    into another is marked ``merged_into``, never deleted."""
+
+    __tablename__ = "wave_clusters"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    label: Mapped[str | None] = mapped_column(Text)
+    label_model: Mapped[str | None] = mapped_column(Text)
+    first_seen: Mapped[date] = mapped_column(Date, nullable=False)
+    last_active: Mapped[date] = mapped_column(Date, nullable=False)
+    window_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    strength: Mapped[float] = mapped_column(REAL, nullable=False)
+    components: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    merged_into: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("wave_clusters.id"))
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WaveMember(Base):
+    """An entity's membership in a wave, with the reason it was linked in and every independence
+    check that ran (migration 0013).
+
+    ``independence`` stores passed *and* failed checks for the same reason ``gate_decisions`` stores
+    suppressed candidates: a wave is only trustworthy if you can see who was excluded and why. A
+    member that shares authors, a dependency path, or an owner with another member is collapsed
+    away, because five microservices from one team are not convergence."""
+
+    __tablename__ = "wave_members"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    wave_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("wave_clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("entities.id"), nullable=False)
+    joined_at: Mapped[date] = mapped_column(Date, nullable=False)
+    link_reason: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    independence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WaveObservation(Base):
+    """The earliest authored, timestamped mention of a wave's members found in collected text
+    (migration 0013, ``LEAD_TIME_PLAN.md``).
+
+    ``observed_at`` is **source time, never ingest time** — a lead measured against when we happened
+    to fetch something is meaningless. That single requirement is what excludes most of the corpus:
+    READMEs and model cards carry no author, and ``hn_discussion`` enrichment events stamp
+    ``occurred_at`` at fetch time and flatten comments without authors. ``lead_days`` may be
+    negative, which simply means the mention came after detection."""
+
+    __tablename__ = "wave_observations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    wave_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("wave_clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("entities.id"))
+    raw_event_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("raw_events.id"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    author_handle: Mapped[str | None] = mapped_column(Text)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lead_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    excerpt: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WaveOutcome(Base):
+    """Did the wave take hold — measured cohort-relative after a horizon (migration 0013).
+
+    Absolute growth is not a verdict: a mention of an already-huge project is not foresight. The
+    verdict compares the members' median growth against the median growth of their own cohorts, the
+    same reference-frame discipline that makes momentum percentiles meaningful. ``unmeasurable`` is
+    a first-class verdict — npm is not collected and PyPI is Python-only, so a wave can genuinely
+    have nothing to measure against, and that must never read as ``faded``."""
+
+    __tablename__ = "wave_outcomes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    wave_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("wave_clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    metric: Mapped[str] = mapped_column(Text, nullable=False)
+    wave_growth: Mapped[float | None] = mapped_column(REAL)
+    cohort_growth: Mapped[float | None] = mapped_column(REAL)
+    percentile: Mapped[float | None] = mapped_column(REAL)
+    verdict: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class ContentSanityCheck(Base):
     """One content-quality verdict on a freshly-collected raw event (migration 0012).
 
@@ -484,6 +597,10 @@ __all__ = [
     "EntitySemanticEdge",
     "CouncilVerdict",
     "ContentSanityCheck",
+    "WaveCluster",
+    "WaveMember",
+    "WaveObservation",
+    "WaveOutcome",
     "DiscoveryTriageDecision",
     "CollectorRun",
     "PipelineRun",

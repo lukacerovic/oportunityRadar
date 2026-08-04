@@ -375,3 +375,80 @@ export interface GraphResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
+
+// --- waves (WAVE_PLAN.md / LEAD_TIME_PLAN.md) --------------------------------
+
+export interface WaveMemberItem {
+  entity_id: number;
+  name: string;
+  entity_type: string;
+  category: string | null;
+  joined_at: string;
+  link_reason: {
+    shared_neighbours?: string[];
+    shared_neighbour_categories?: string[];
+    direct?: string[];
+  };
+  independence: {
+    independent: boolean;
+    absorbed_into: number | null;
+    conflicts: { kind: string; detail: string }[];
+    checks_run: string[];
+  };
+}
+
+export interface WaveObservationItem {
+  entity_id: number | null;
+  entity_name: string | null;
+  source: string;
+  author_handle: string | null;
+  observed_at: string;
+  lead_days: number;
+  excerpt: string | null;
+}
+
+export interface WaveOutcomeItem {
+  metric: string;
+  horizon_days: number;
+  wave_growth: number | null;
+  cohort_growth: number | null;
+  percentile: number | null;
+  verdict: "took_hold" | "flat" | "faded" | "unmeasurable";
+  detail: Record<string, unknown>;
+  evaluated_at: string;
+}
+
+export interface WaveSummary {
+  id: number;
+  label: string | null;
+  first_seen: string;
+  last_active: string;
+  window_days: number;
+  strength: number;
+  member_count: number;
+  categories: string[];
+  best_lead_days: number | null;
+  verdict: string | null;
+}
+
+export interface WaveDetail {
+  id: number;
+  label: string | null;
+  first_seen: string;
+  last_active: string;
+  window_days: number;
+  strength: number;
+  components: {
+    size?: number;
+    breadth?: number;
+    tightness?: number;
+    members?: number;
+    median_evidence_breadth?: number;
+    span_days?: number;
+    categories?: string[];
+    collapsed?: number;
+  };
+  members: WaveMemberItem[];
+  observations: WaveObservationItem[];
+  outcomes: WaveOutcomeItem[];
+}

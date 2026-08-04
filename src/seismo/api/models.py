@@ -432,3 +432,76 @@ class ScorePacketResponse(BaseModel):
 class ScoreResult(BaseModel):
     brief_id: int
     materialized: str
+
+
+# --- waves (WAVE_PLAN.md / LEAD_TIME_PLAN.md) --------------------------------
+
+
+class WaveMemberItem(BaseModel):
+    """One entity in a wave, with why it was linked in and what the independence checks found."""
+
+    entity_id: int
+    name: str
+    entity_type: str
+    category: str | None
+    joined_at: date
+    link_reason: dict[str, Any]
+    independence: dict[str, Any]
+
+
+class WaveObservationItem(BaseModel):
+    """An authored, timestamped mention that predates (or follows) detection.
+
+    ``lead_days`` is positive when the mention came *before* the system flagged the wave — the whole
+    point of the record. Negative simply means it came after."""
+
+    entity_id: int | None
+    entity_name: str | None
+    source: str
+    author_handle: str | None
+    observed_at: datetime
+    lead_days: int
+    excerpt: str | None
+
+
+class WaveOutcomeItem(BaseModel):
+    """Did it take hold, measured cohort-relative. ``unmeasurable`` is a real answer, not a gap."""
+
+    metric: str
+    horizon_days: int
+    wave_growth: float | None
+    cohort_growth: float | None
+    percentile: float | None
+    verdict: str  # took_hold | flat | faded | unmeasurable
+    detail: dict[str, Any]
+    evaluated_at: datetime
+
+
+class WaveSummary(BaseModel):
+    """One row on the waves index."""
+
+    id: int
+    label: str | None
+    first_seen: date
+    last_active: date
+    window_days: int
+    strength: float
+    member_count: int
+    categories: list[str]
+    best_lead_days: int | None  # the earliest mention's lead, when any was found
+    verdict: str | None  # the strongest outcome verdict across metrics
+
+
+class WaveDetail(BaseModel):
+    """A wave as a timeline: it formed, someone saw it earlier, it did or didn't take hold."""
+
+    id: int
+    label: str | None
+    first_seen: date
+    last_active: date
+    window_days: int
+    strength: float
+    components: dict[str, Any]
+    members: list[WaveMemberItem]
+    observations: list[WaveObservationItem]
+    outcomes: list[WaveOutcomeItem]

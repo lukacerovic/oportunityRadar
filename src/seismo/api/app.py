@@ -1527,3 +1527,159 @@ def graph(
 
 def _f(value: Any) -> float | None:
     return None if value is None else float(value)
+
+
+# --- waves (WAVE_PLAN.md / LEAD_TIME_PLAN.md) --------------------------------
+
+
+@app.get("/waves", response_model=list[m.WaveSummary])
+def waves(
+    session: Session = Depends(get_session),
+    limit: int = Query(50, le=200),
+) -> list[m.WaveSummary]:
+    """Detected convergences, strongest first — several *independent* young entities entering the
+    same problem space at once.
+
+    Merged-away waves are excluded: they are kept in the table as history (nothing is deleted), but
+    a wave that has been absorbed into another is not a separate finding."""
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT w.id, w.label, w.first_seen, w.last_active, w.window_days, w.strength,
+                       w.components,
+                       (SELECT count(*) FROM wave_members mm WHERE mm.wave_id = w.id) AS members,
+                       (SELECT max(lead_days) FROM wave_observations o WHERE o.wave_id = w.id)
+                         AS best_lead,
+                       (SELECT o2.verdict FROM wave_outcomes o2
+                        WHERE o2.wave_id = w.id AND o2.verdict <> 'unmeasurable'
+                        ORDER BY o2.percentile DESC NULLS LAST LIMIT 1) AS verdict
+                FROM wave_clusters w
+                WHERE w.merged_into IS NULL
+                ORDER BY w.strength DESC, w.first_seen DESC
+                LIMIT :limit
+                """
+            ),
+            {"limit": limit},
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        m.WaveSummary(
+            id=r["id"],
+            label=r["label"],
+            first_seen=r["first_seen"],
+            last_active=r["last_active"],
+            window_days=r["window_days"],
+            strength=float(r["strength"]),
+            member_count=int(r["members"]),
+            categories=list((r["components"] or {}).get("categories") or []),
+            best_lead_days=r["best_lead"],
+            verdict=r["verdict"],
+        )
+        for r in rows
+    ]
+
+
+@app.get("/waves/{wave_id}", response_model=m.WaveDetail)
+def wave_detail(wave_id: int, session: Session = Depends(get_session)) -> m.WaveDetail:
+    """One wave in full: members with their link reasons and independence checks, the earliest
+    authored mentions, and the cohort-relative outcome.
+
+    The independence checks are returned whether they passed or failed, for the same reason the gate
+    returns suppressed candidates — a wave is only trustworthy if you can see what was excluded."""
+    head = (
+        session.execute(
+            text(
+                "SELECT id, label, first_seen, last_active, window_days, strength, components"
+                " FROM wave_clusters WHERE id = :id"
+            ),
+            {"id": wave_id},
+        )
+        .mappings()
+        .first()
+    )
+    if head is None:
+        raise HTTPException(status_code=404, detail=f"no wave {wave_id}")
+
+    members = [
+        m.WaveMemberItem(
+            entity_id=r["entity_id"],
+            name=r["canonical_name"],
+            entity_type=r["entity_type"],
+            category=r["category"],
+            joined_at=r["joined_at"],
+            link_reason=r["link_reason"] or {},
+            independence=r["independence"] or {},
+        )
+        for r in session.execute(
+            text(
+                """
+                SELECT wm.entity_id, wm.joined_at, wm.link_reason, wm.independence,
+                       e.canonical_name, e.entity_type, e.category
+                FROM wave_members wm JOIN entities e ON e.id = wm.entity_id
+                WHERE wm.wave_id = :id
+                ORDER BY wm.joined_at, e.canonical_name
+                """
+            ),
+            {"id": wave_id},
+        ).mappings()
+    ]
+
+    observations = [
+        m.WaveObservationItem(
+            entity_id=r["entity_id"],
+            entity_name=r["canonical_name"],
+            source=r["source"],
+            author_handle=r["author_handle"],
+            observed_at=r["observed_at"],
+            lead_days=r["lead_days"],
+            excerpt=r["excerpt"],
+        )
+        for r in session.execute(
+            text(
+                """
+                SELECT o.entity_id, o.source, o.author_handle, o.observed_at, o.lead_days,
+                       o.excerpt, e.canonical_name
+                FROM wave_observations o LEFT JOIN entities e ON e.id = o.entity_id
+                WHERE o.wave_id = :id
+                ORDER BY o.lead_days DESC, o.observed_at ASC
+                """
+            ),
+            {"id": wave_id},
+        ).mappings()
+    ]
+
+    outcomes = [
+        m.WaveOutcomeItem(
+            metric=r["metric"],
+            horizon_days=r["horizon_days"],
+            wave_growth=_f(r["wave_growth"]),
+            cohort_growth=_f(r["cohort_growth"]),
+            percentile=_f(r["percentile"]),
+            verdict=r["verdict"],
+            detail=r["detail"] or {},
+            evaluated_at=r["evaluated_at"],
+        )
+        for r in session.execute(
+            text(
+                "SELECT metric, horizon_days, wave_growth, cohort_growth, percentile, verdict,"
+                " detail, evaluated_at FROM wave_outcomes WHERE wave_id = :id ORDER BY metric"
+            ),
+            {"id": wave_id},
+        ).mappings()
+    ]
+
+    return m.WaveDetail(
+        id=head["id"],
+        label=head["label"],
+        first_seen=head["first_seen"],
+        last_active=head["last_active"],
+        window_days=head["window_days"],
+        strength=float(head["strength"]),
+        components=head["components"] or {},
+        members=members,
+        observations=observations,
+        outcomes=outcomes,
+    )

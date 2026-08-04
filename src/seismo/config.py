@@ -84,6 +84,19 @@ class Settings(BaseSettings):
     gate_rebrief_days: int = 60  # a published brief younger than this suppresses re-briefing
     gate_novelty_cohort_days: int = 180  # the (category, age<Nd) window for the Novelty cohort
 
+    # --- wave radar (WAVE_PLAN.md; every default below is a GUESS, not a tuned value) ---
+    # These cannot be calibrated from a design branch — they need a run against real data, ideally
+    # a hindcast against known past convergences. Expect to move them and record the move in
+    # DECISIONS.md rather than editing silently.
+    wave_window_days: int = 30  # first-evidence window a cluster must fit inside
+    wave_max_age_days: int = 180  # matches gate_novelty_cohort_days — young entities only
+    wave_min_members: int = 4  # below 4 is coincidence; 6 would have missed the known case
+    wave_min_edge_confidence: float = 0.5  # floor on entity_semantic_edges.confidence_score
+    wave_continuity_overlap: float = 0.5  # member overlap (of the smaller set) = the same wave
+    wave_require_momentum: bool = False  # require a member to have left dormant (open question 1)
+    wave_outcome_horizon_days: int = 90  # when "did it take hold" is measured
+    wave_outcome_flat_band: float = 0.05  # mirrors memory/scoring.py _FLAT_BAND
+
     # --- momentum state machine (doc 06 §4; tuned against hindcasts, not vibes) ---
     momentum_p_simmering: float = 0.60  # velocity pctl for simmering (>=1 metric)
     momentum_p_accelerating: float = 0.80  # velocity pctl for accelerating (>=2 metrics)

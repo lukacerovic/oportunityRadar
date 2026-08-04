@@ -10,6 +10,8 @@ import type {
   QueueItem,
   RadarResponse,
   ScorePacketResponse,
+  WaveDetail,
+  WaveSummary,
 } from "./types";
 
 const BASE = process.env.SEISMO_API_BASE ?? "http://127.0.0.1:8000";
@@ -100,3 +102,11 @@ export function getGraph(
 }
 
 export const API_BASE = BASE;
+
+export function getWaves(limit = 50): Promise<WaveSummary[]> {
+  return get<WaveSummary[]>(`/waves?limit=${limit}`);
+}
+
+export function getWave(id: string | number): Promise<WaveDetail> {
+  return get<WaveDetail>(`/waves/${id}`);
+}

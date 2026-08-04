@@ -534,6 +534,35 @@ def load_map_cmd(
 
 
 @app.command()
+def waves(
+    as_of: str = typer.Option(None, help="ISO date; default now."),
+    skip_observers: bool = typer.Option(False, help="Detect only; skip the early-mention search."),
+    skip_outcomes: bool = typer.Option(False, help="Detect only; skip the took-hold scoring."),
+) -> None:
+    """Wave Radar (``WAVE_PLAN.md``) — detect several *independent* young entities entering the
+    same problem space at once, then find who mentioned them earliest and whether it took hold.
+
+    Deterministic and re-runnable: no LLM (invariant 4), and a wave keeps its id and ``first_seen``
+    across runs so the record stays a record rather than churn."""
+    from seismo.db import session_scope
+    from seismo.waves import run_observers, run_outcomes, run_waves
+
+    at = _parse_as_of(as_of)
+    with record_pipeline_run("waves", at):
+        with session_scope() as session:
+            stats = run_waves(session, at)
+        typer.echo(f"[waves] {stats.as_note()}")
+        if not skip_observers:
+            with session_scope() as session:
+                obs = run_observers(session, at)
+            typer.echo(f"[waves] observers: {obs['observations']} over {obs['waves']} waves")
+        if not skip_outcomes:
+            with session_scope() as session:
+                out = run_outcomes(session, at)
+            typer.echo(f"[waves] outcomes: {out['outcomes']} rows over {out['waves']} waves")
+
+
+@app.command()
 def gate(
     week: str = typer.Option(None, help="ISO week, e.g. 2026-W28; default current week."),
 ) -> None:

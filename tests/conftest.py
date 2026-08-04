@@ -16,6 +16,12 @@ from seismo.db import engine
 # are global by design and the shared dev DB carries committed events; deletions live inside the
 # rolled-back transaction, so real data returns on rollback. Order = dependents before parents.
 _CLEAR_TABLES = [
+    # Wave tables first: they FK entities and raw_events, and wave_members/_observations/_outcomes
+    # FK wave_clusters. STATE.md records this ordering breaking the suite three separate times.
+    "wave_outcomes",
+    "wave_observations",
+    "wave_members",
+    "wave_clusters",
     "entity_merge_queue",
     "entity_merges",
     "entity_category_history",

@@ -94,6 +94,11 @@ run "sanity" uv run seismo sanity --limit "${SANITY_LIMIT:-500}"
 run "derive-edges" uv run seismo derive-edges
 run "snapshot" uv run seismo snapshot
 run "score"    uv run seismo score
+# Wave Radar (WAVE_PLAN.md): the only stage that asks a question about a *population* — several
+# independent young entities entering the same problem space at once. Deterministic, no LLM, no
+# network. Also re-scores existing waves' outcomes as their horizons elapse, which is why it runs
+# every day and not only when something new forms.
+run "waves"    uv run seismo waves
 if [ "${SKIP_COMPREHEND:-0}" != "1" ]; then
   run "comprehend" uv run seismo comprehend
   # Backlog: card the richest still-uncarded items (arXiv abstracts, HF/launch content) a slice at
