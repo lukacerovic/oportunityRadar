@@ -10,8 +10,10 @@ import type {
   QueueItem,
   RadarResponse,
   ScorePacketResponse,
+  ThemeFacet,
   WaveDetail,
   WaveSummary,
+  WeeklyResponse,
 } from "./types";
 
 const BASE = process.env.SEISMO_API_BASE ?? "http://127.0.0.1:8000";
@@ -103,8 +105,23 @@ export function getGraph(
 
 export const API_BASE = BASE;
 
-export function getWaves(limit = 50): Promise<WaveSummary[]> {
-  return get<WaveSummary[]>(`/waves?limit=${limit}`);
+export function getWaves(
+  params: { theme?: string; verdict?: string; minLead?: number; limit?: number } = {},
+): Promise<WaveSummary[]> {
+  const q = new URLSearchParams();
+  if (params.theme) q.set("theme", params.theme);
+  if (params.verdict) q.set("verdict", params.verdict);
+  if (params.minLead !== undefined) q.set("min_lead", String(params.minLead));
+  q.set("limit", String(params.limit ?? 50));
+  return get<WaveSummary[]>(`/waves?${q.toString()}`);
+}
+
+export function getThemes(): Promise<ThemeFacet[]> {
+  return get<ThemeFacet[]>("/themes");
+}
+
+export function getWeekly(week: string): Promise<WeeklyResponse> {
+  return get<WeeklyResponse>(`/weekly/${week}`);
 }
 
 export function getWave(id: string | number): Promise<WaveDetail> {

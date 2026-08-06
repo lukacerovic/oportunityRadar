@@ -3,6 +3,7 @@ import Link from "next/link";
 // Queue (entity-merge triage) is internal curation, not a monitoring view — kept as a route but
 // off the main nav. Tooltips spell out what each section is for.
 const NAV = [
+  { href: "/weekly/current", label: "Weekly", hint: "What formed and what got graded this week" },
   { href: "/", label: "Radar", hint: "Everything we track, ranked by momentum" },
   { href: "/changes/latest", label: "Activity", hint: "What moved recently — new items, state changes" },
   { href: "/gate/current", label: "Gate", hint: "The weekly shortlist of items significant enough to analyze" },
