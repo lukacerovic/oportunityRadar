@@ -55,6 +55,49 @@ The result is a row in the table that already exists. `entity_semantic_edges` ca
 `confidence_score`, so an embedding edge is `model="bge-…"` with the cosine score — sitting beside
 LLM-derived rows **without pretending to be the same kind of claim**.
 
+## 2b. What gets embedded — two tiers, and the LLM comes second
+
+The natural assumption is that a model must first produce keywords and summaries for all 18,360
+entities before anything can be embedded. It does not, and keywords are the wrong output anyway —
+an embedding model consumes prose, not tags, and model-generated tags fragment into near-synonyms
+(`cost control` / `budget limiting` / `spend guard`) that never join.
+
+There are two things worth embedding, and the cheap one bootstraps the expensive one.
+
+**Tier 1 — raw collected text. No model, works today, all 18,360 entities.**
+
+The catch is real: a README is mostly packaging. Badges, install instructions, licence boilerplate,
+contributor lists. Two tools solving the same problem in different languages have their vectors
+dominated by `pip install` versus `cargo add` — the embedding captures how a project is *shipped*,
+not what it *is*.
+
+**Tier 2 — the comprehension card, ideally its `problem_statement`.** The noise is already stripped,
+so this embeds meaning. It costs one LLM call per entity, and coverage is 4.2% today.
+
+**They compose, and the order is the opposite of the intuition:**
+
+```
+1.  embed raw text for everything          free, today, 18,360 entities
+        ↓
+    a coarse graph — good enough to see WHERE the young entities cluster
+        ↓
+2.  card only those dense young regions     hundreds, not 9,800
+        ↓
+3.  embed problem_statement for them        a sharp graph where it matters
+```
+
+**The cheap layer chooses who gets the expensive call.** That also answers "how many cards do we
+need" without guessing: the coarse graph shows it. Dense around `agent-*` and empty around
+`ml-compiler` means card the first and ignore the second.
+
+⚠️ **The rule that keeps tier 1 safe:**
+
+> Raw-text similarity may decide **who gets carded**. It must never decide **who is in a wave**.
+
+Coarse embeddings will link two tutorials more strongly than two real tools, because tutorials are
+written alike. That is acceptable for steering attention and unacceptable for a record that claims
+independent teams converged. Wave membership forms only from tier-2 edges.
+
 ## 3. Scale decides the architecture, not preference
 
 All-pairs over the current universe:
