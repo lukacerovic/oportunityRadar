@@ -19,7 +19,9 @@ dashboard/out/
 
 # Local data / dumps
 *.dump.zst
+*.dump
 /var/backups/
+/backups/
 logs/
 
 # Derived corpora — regenerate, never commit.
