@@ -10,10 +10,14 @@ incidental:
 
 - READMEs, model cards, arXiv abstracts — artifacts. They record what was built, not who understood
   it first, and their text has no author attached at the granularity we would need.
-- ``hn_discussion`` enrichment events — **excluded on purpose.** They stamp ``occurred_at`` at fetch
-  time, not comment time, and flatten every comment into one ``text`` blob with authors dropped
-  (``collectors/launches.py``). Measuring a "lead" against an ingestion timestamp would produce
-  confident, meaningless numbers — the exact failure this whole feature exists to avoid.
+- ``hn_discussion`` enrichment events — excluded **as the collector writes them today**, not
+  because the source lacks the data. ``_top_comments`` (``collectors/launches.py``) keeps only
+  ``child["text"]`` and joins twelve comments into one blob under a single ``now()`` stamp, so a
+  lead computed from it would be measured against fetch time — confident and meaningless, the exact
+  failure this feature exists to avoid. **The API does return ``author``, ``created_at`` and
+  ``points`` per comment** (verified live, ``TIME_METADATA_AUDIT.md`` 2026-08-05). Fixing the
+  collector to emit one event per comment removes this exclusion and is the single largest
+  expansion available to the lead-time corpus.
 - download counts, star counts, token counts — no author, no opinion. They grade an observer
   (``waves/outcomes.py``); they can never identify one.
 

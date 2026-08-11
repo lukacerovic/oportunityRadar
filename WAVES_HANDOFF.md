@@ -118,9 +118,12 @@ one-time snapshot dated 2026-07-25 that does not refresh itself. Waves only form
 is a fourth with the same dependency. **Few waves at first is the expected result, not a bug.**
 
 **Observers currently read one source: `hn`/`story`.** A source qualifies only if it carries an
-author *and* a real source time. `hn_discussion` is excluded on purpose — it stamps `occurred_at` at
-fetch time and flattens comments with authors dropped, so a "lead" computed from it would be
-confident and meaningless. Adding a source is one entry in `_SOURCES` in `waves/observers.py`.
+author *and* a real source time. `hn_discussion` is excluded **because of how the collector writes
+it**, not because the data is missing: `_top_comments` flattens a dozen comments into one blob and
+stamps `occurred_at` at fetch time, so any lead from it would be measured against our clock.
+`TIME_METADATA_AUDIT.md` verified live that the API returns `author`, `created_at` and `points` per
+comment — emitting one event per comment lifts the exclusion, and is the largest single expansion
+available to this corpus. Adding a source is one entry in `_SOURCES` in `waves/observers.py`.
 
 **Outcome coverage is uneven.** PyPI is Python-only, npm is not collected at all. `unmeasurable` is
 a real verdict and must never be read as `faded`.

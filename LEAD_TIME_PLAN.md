@@ -81,7 +81,9 @@ many" but **which job a source does**, and there are exactly two:
 
 | Source | Carries | Job 1 (find) | Job 2 (grade) |
 |---|---|---|---|
-| HN comments and threads | author + timestamp | **Yes** — already collected | no |
+| HN **stories** | author + timestamp | **Yes** — the only surface collected today | no |
+| HN **comments** | author + timestamp | **Yes, and unused** — `tags=comment` on the same free endpoint; the collector asks only for `story` | no |
+| HN discussion threads | author + timestamp | **Available, discarded** — `_top_comments` flattens them and stamps fetch time; the API returns `author`/`created_at`/`points` per comment (`TIME_METADATA_AUDIT.md`, verified 2026-08-05) | no |
 | Substack posts | author + timestamp | **Yes** — approved, not built (below) | no |
 | GitHub README, HF model card, arXiv abstract | artifacts | **No.** They say what was built, not who understood it first. | partial (as entity text) |
 | PyPI downloads, HF, OpenRouter tokens, stars | counts | **No.** No author, no opinion. | **Yes — the only thing that works** |
