@@ -23,6 +23,8 @@ from seismo.checkpoints.council_vote import aggregate_stance
 from seismo.config import settings
 from seismo.db import canonical_entity_id, category_asof, session_scope
 from seismo.health import run_checks
+from seismo.identity import vocab
+from seismo.waves import facets
 
 app = FastAPI(title="Seismograph API", version="0.1.0")
 app.add_middleware(
@@ -1535,17 +1537,55 @@ def _f(value: Any) -> float | None:
 @app.get("/waves", response_model=list[m.WaveSummary])
 def waves(
     session: Session = Depends(get_session),
+    theme: str | None = Query(None, description="Narrative theme from seed/themes.yaml."),
+    verdict: str | None = Query(None, description="took_hold | flat | faded | ungraded."),
+    min_lead: int | None = Query(None, description="Only waves seen at least N days before us."),
     limit: int = Query(50, le=200),
 ) -> list[m.WaveSummary]:
     """Detected convergences, strongest first — several *independent* young entities entering the
     same problem space at once.
 
+    Facets, never a tree. A wave matches ``theme`` when *any* member's category maps to it, so one
+    wave can appear under two themes — the known convergence spanned two, and nesting waves under a
+    category would have split it in half at the navigation layer. An unknown theme matches nothing
+    rather than everything, so a typo can't silently return an unfiltered list.
+
     Merged-away waves are excluded: they are kept in the table as history (nothing is deleted), but
     a wave that has been absorbed into another is not a separate finding."""
+    clauses = ["w.merged_into IS NULL"]
+    params: dict[str, Any] = {"limit": limit}
+
+    if theme is not None:
+        params["cats"] = facets.categories_for_theme(theme)
+        clauses.append(
+            "EXISTS (SELECT 1 FROM wave_members wm JOIN entities e ON e.id = wm.entity_id"
+            "        WHERE wm.wave_id = w.id AND e.category = ANY(:cats))"
+        )
+    if min_lead is not None:
+        params["min_lead"] = min_lead
+        clauses.append(
+            "EXISTS (SELECT 1 FROM wave_observations o WHERE o.wave_id = w.id"
+            "        AND o.lead_days >= :min_lead)"
+        )
+    if verdict is not None:
+        if verdict == "ungraded":
+            # Deliberately its own filter: "nothing decided yet" is a state a reader looks for,
+            # and folding it into unmeasurable would hide waves still inside their horizon.
+            clauses.append(
+                "NOT EXISTS (SELECT 1 FROM wave_outcomes o3 WHERE o3.wave_id = w.id"
+                "            AND o3.verdict <> 'unmeasurable')"
+            )
+        else:
+            params["verdict"] = verdict
+            clauses.append(
+                "EXISTS (SELECT 1 FROM wave_outcomes o4 WHERE o4.wave_id = w.id"
+                "        AND o4.verdict = :verdict)"
+            )
+
     rows = (
         session.execute(
             text(
-                """
+                f"""
                 SELECT w.id, w.label, w.first_seen, w.last_active, w.window_days, w.strength,
                        w.components,
                        (SELECT count(*) FROM wave_members mm WHERE mm.wave_id = w.id) AS members,
@@ -1555,16 +1595,17 @@ def waves(
                         WHERE o2.wave_id = w.id AND o2.verdict <> 'unmeasurable'
                         ORDER BY o2.percentile DESC NULLS LAST LIMIT 1) AS verdict
                 FROM wave_clusters w
-                WHERE w.merged_into IS NULL
+                WHERE {" AND ".join(clauses)}
                 ORDER BY w.strength DESC, w.first_seen DESC
                 LIMIT :limit
-                """
+                """  # noqa: S608 — clauses are literals built above; values stay bound params
             ),
-            {"limit": limit},
+            params,
         )
         .mappings()
         .all()
     )
+    themes = facets.wave_themes(session, [r["id"] for r in rows])
     return [
         m.WaveSummary(
             id=r["id"],
@@ -1575,10 +1616,39 @@ def waves(
             strength=float(r["strength"]),
             member_count=int(r["members"]),
             categories=list((r["components"] or {}).get("categories") or []),
+            themes=themes.get(r["id"], []),
             best_lead_days=r["best_lead"],
             verdict=r["verdict"],
         )
         for r in rows
+    ]
+
+
+@app.get("/themes", response_model=list[m.ThemeFacet])
+def theme_facets(session: Session = Depends(get_session)) -> list[m.ThemeFacet]:
+    """The theme vocabulary with a wave count each — the entry point for browsing.
+
+    Counts come from live waves, so a theme with no convergence yet reads as 0 rather than being
+    hidden. The full list is the point: an empty theme is information about where nothing is
+    happening."""
+    rows = session.execute(
+        text(
+            """
+            SELECT DISTINCT wm.wave_id, e.category
+            FROM wave_members wm
+            JOIN entities e ON e.id = wm.entity_id
+            JOIN wave_clusters w ON w.id = wm.wave_id AND w.merged_into IS NULL
+            WHERE e.category IS NOT NULL
+            """
+        )
+    ).all()
+    per_theme: dict[str, set[int]] = {}
+    for wave_id, category in rows:
+        per_theme.setdefault(vocab.theme_for_category(category), set()).add(int(wave_id))
+    return [
+        m.ThemeFacet(name=name, description=t.description, wave_count=len(per_theme.get(name, ())))
+        for name, t in sorted(vocab.themes().items())
+        if name != "uncategorized"
     ]
 
 
@@ -1682,4 +1752,112 @@ def wave_detail(wave_id: int, session: Session = Depends(get_session)) -> m.Wave
         members=members,
         observations=observations,
         outcomes=outcomes,
+    )
+
+
+@app.get("/weekly/{week}", response_model=m.WeeklyResponse)
+def weekly(week: str, session: Session = Depends(get_session)) -> m.WeeklyResponse:
+    """One week of the record: what formed, what got graded, and what still can't be scored.
+
+    ``week`` is an ISO week (``2026-W30``) or ``current``/``latest``. The three sections answer
+    three different questions and are deliberately not merged: *formed* is a new claim, *graded* is
+    an old claim coming due, and *map_gaps* is the system reporting where it is structurally
+    blind."""
+    from seismo.significance.gate import parse_week
+
+    if week in ("current", "latest"):
+        latest = session.execute(text("SELECT MAX(first_seen) FROM wave_clusters")).scalar()
+        if latest is None:
+            week_start = parse_week(None)
+        else:
+            iso = latest.isocalendar()
+            week_start = date.fromisocalendar(iso.year, iso.week, 1)
+    else:
+        try:
+            week_start = parse_week(week)
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(status_code=400, detail=f"bad week {week!r}") from exc
+    week_end = week_start + timedelta(days=6)
+
+    def _rows(sql: str) -> list[Any]:
+        return list(
+            session.execute(text(sql), {"ws": week_start, "we": week_end}).mappings().all()
+        )
+
+    formed_rows = _rows(
+        """
+        SELECT w.id, w.label, w.first_seen,
+               (SELECT count(*) FROM wave_members mm WHERE mm.wave_id = w.id) AS members,
+               (SELECT max(lead_days) FROM wave_observations o WHERE o.wave_id = w.id) AS best_lead,
+               NULL::text AS verdict, NULL::real AS wave_growth, NULL::real AS cohort_growth
+        FROM wave_clusters w
+        WHERE w.merged_into IS NULL AND w.first_seen BETWEEN :ws AND :we
+        ORDER BY w.strength DESC
+        """
+    )
+    # Graded = an outcome reached a real verdict during this week. A wave formed months ago shows up
+    # here when its horizon comes due, which is the point: the record settles its own claims.
+    graded_rows = _rows(
+        """
+        SELECT DISTINCT ON (w.id) w.id, w.label, w.first_seen,
+               (SELECT count(*) FROM wave_members mm WHERE mm.wave_id = w.id) AS members,
+               (SELECT max(lead_days) FROM wave_observations o WHERE o.wave_id = w.id) AS best_lead,
+               o2.verdict, o2.wave_growth, o2.cohort_growth
+        FROM wave_clusters w
+        JOIN wave_outcomes o2 ON o2.wave_id = w.id
+        WHERE w.merged_into IS NULL
+          AND o2.verdict <> 'unmeasurable'
+          AND o2.evaluated_at::date BETWEEN :ws AND :we
+        ORDER BY w.id, o2.percentile DESC NULLS LAST
+        """
+    )
+
+    themes = facets.wave_themes(
+        session, [r["id"] for r in formed_rows] + [r["id"] for r in graded_rows]
+    )
+
+    def _wave(r: Any) -> m.WeeklyWave:
+        return m.WeeklyWave(
+            id=r["id"],
+            label=r["label"],
+            first_seen=r["first_seen"],
+            member_count=int(r["members"]),
+            themes=themes.get(r["id"], []),
+            best_lead_days=r["best_lead"],
+            verdict=r["verdict"],
+            wave_growth=_f(r["wave_growth"]),
+            cohort_growth=_f(r["cohort_growth"]),
+        )
+
+    gaps: dict[str, int] = {}
+    for category, n in session.execute(
+        text(
+            """
+            SELECT e.category, count(*) FROM gate_decisions g
+            JOIN entities e ON e.id = g.entity_id
+            WHERE g.week = :ws AND g.components ->> 'reason' = 'unmapped_reach'
+              AND e.category IS NOT NULL
+            GROUP BY e.category ORDER BY count(*) DESC
+            """
+        ),
+        {"ws": week_start},
+    ).all():
+        gaps[category] = int(n)
+
+    weeks = sorted(
+        {
+            f"{d.isocalendar().year}-W{d.isocalendar().week:02d}"
+            for d in session.execute(
+                text("SELECT first_seen FROM wave_clusters WHERE merged_into IS NULL")
+            ).scalars()
+        },
+        reverse=True,
+    )
+
+    return m.WeeklyResponse(
+        week=week_start,
+        formed=[_wave(r) for r in formed_rows],
+        graded=[_wave(r) for r in graded_rows],
+        map_gaps=gaps,
+        available_weeks=weeks,
     )

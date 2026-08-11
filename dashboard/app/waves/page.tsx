@@ -1,17 +1,35 @@
 import Link from "next/link";
-import { getWaves } from "@/lib/api";
-import { titleize, shortDate } from "@/lib/format";
-import type { WaveSummary } from "@/lib/types";
+import { getThemes, getWaves } from "@/lib/api";
+import { shortDate } from "@/lib/format";
+import type { ThemeFacet, WaveSummary } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
 import { ApiError } from "@/components/ApiError";
 import { VerdictChip } from "@/components/VerdictChip";
+import { WaveFacets } from "@/components/WaveFacets";
 
 export const dynamic = "force-dynamic";
 
-export default async function WavesPage() {
+export default async function WavesPage({
+  searchParams,
+}: {
+  searchParams: { theme?: string; verdict?: string; min_lead?: string };
+}) {
+  const active = {
+    theme: searchParams.theme,
+    verdict: searchParams.verdict,
+    minLead: searchParams.min_lead,
+  };
   let waves: WaveSummary[];
+  let themes: ThemeFacet[];
   try {
-    waves = await getWaves();
+    [waves, themes] = await Promise.all([
+      getWaves({
+        theme: active.theme,
+        verdict: active.verdict,
+        minLead: active.minLead ? Number(active.minLead) : undefined,
+      }),
+      getThemes(),
+    ]);
   } catch (e) {
     return (
       <>
@@ -34,15 +52,27 @@ export default async function WavesPage() {
           </p>
         </div>
 
+        <WaveFacets themes={themes} active={active} />
+
         {waves.length === 0 ? (
           <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted">
-            <p className="text-text">No waves detected yet.</p>
-            <p className="mt-2 max-w-[70ch]">
-              A wave needs at least four independent entities that appeared inside the same window
-              and share a semantic neighbourhood. Detection runs on <code>seismo waves</code>, and
-              it reads the semantic graph — if that graph is sparse, waves will be rare rather than
-              wrong.
-            </p>
+            {active.theme || active.verdict || active.minLead ? (
+              <>
+                <p className="text-text">No waves match these filters.</p>
+                <p className="mt-2">Clear one and try again — the filters compose, so a narrow
+                combination can easily match nothing.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-text">No waves detected yet.</p>
+                <p className="mt-2 max-w-[70ch]">
+                  A wave needs at least four independent entities that appeared inside the same
+                  window and share a semantic neighbourhood. Detection runs on{" "}
+                  <code>seismo waves</code>, and it reads the semantic graph — if that graph is
+                  sparse, waves will be rare rather than wrong.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="grid gap-3">
@@ -73,10 +103,10 @@ export default async function WavesPage() {
                         <span className="tabular text-text">{w.member_count}</span> independent
                         members
                       </span>
-                      {w.categories.length > 0 && (
+                      {w.themes.length > 0 && (
                         <>
                           <span className="text-faint">·</span>
-                          <span>{w.categories.map(titleize).join(", ")}</span>
+                          <span>{w.themes.join(" + ")}</span>
                         </>
                       )}
                     </div>

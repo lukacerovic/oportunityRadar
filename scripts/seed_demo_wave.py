@@ -43,7 +43,9 @@ def purge() -> None:
             ).scalars()
         )
         if ids:
-            s.execute(text("DELETE FROM wave_observations WHERE entity_id = ANY(:ids)"), {"ids": ids})
+            s.execute(
+                text("DELETE FROM wave_observations WHERE entity_id = ANY(:ids)"), {"ids": ids}
+            )
             s.execute(text("DELETE FROM wave_members WHERE entity_id = ANY(:ids)"), {"ids": ids})
             s.execute(
                 text(
@@ -58,12 +60,22 @@ def purge() -> None:
                     " (SELECT DISTINCT wave_id FROM wave_members)"
                 )
             )
-            s.execute(text("DELETE FROM entity_semantic_edges WHERE src_entity_id = ANY(:ids)"), {"ids": ids})
-            s.execute(text("DELETE FROM entity_metrics_daily WHERE entity_id = ANY(:ids)"), {"ids": ids})
-            s.execute(text("DELETE FROM entity_category_history WHERE entity_id = ANY(:ids)"), {"ids": ids})
+            s.execute(
+                text("DELETE FROM entity_semantic_edges WHERE src_entity_id = ANY(:ids)"),
+                {"ids": ids},
+            )
+            s.execute(
+                text("DELETE FROM entity_metrics_daily WHERE entity_id = ANY(:ids)"), {"ids": ids}
+            )
+            s.execute(
+                text("DELETE FROM entity_category_history WHERE entity_id = ANY(:ids)"),
+                {"ids": ids},
+            )
             s.execute(text("DELETE FROM entity_links WHERE entity_id = ANY(:ids)"), {"ids": ids})
             s.execute(text("DELETE FROM entities WHERE id = ANY(:ids)"), {"ids": ids})
-        s.execute(text("DELETE FROM raw_events WHERE source_event_uid LIKE :p"), {"p": f"{PREFIX}%"})
+        s.execute(
+            text("DELETE FROM raw_events WHERE source_event_uid LIKE :p"), {"p": f"{PREFIX}%"}
+        )
     print(f"purged {len(ids)} demo entities")
 
 
@@ -135,7 +147,8 @@ def seed() -> None:
         # One early mention, with a real author and real source time — the lead-time claim.
         s.execute(
             text(
-                "INSERT INTO raw_events (source, source_event_uid, event_type, occurred_at, payload)"
+                "INSERT INTO raw_events"
+                " (source, source_event_uid, event_type, occurred_at, payload)"
                 " VALUES ('hn', :uid, 'story', :ts, CAST(:p AS jsonb))"
             ),
             {

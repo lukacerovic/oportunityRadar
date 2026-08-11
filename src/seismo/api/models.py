@@ -488,6 +488,7 @@ class WaveSummary(BaseModel):
     strength: float
     member_count: int
     categories: list[str]
+    themes: list[str] = []  # derived from member categories; a wave may touch several
     best_lead_days: int | None  # the earliest mention's lead, when any was found
     verdict: str | None  # the strongest outcome verdict across metrics
 
@@ -505,3 +506,40 @@ class WaveDetail(BaseModel):
     members: list[WaveMemberItem]
     observations: list[WaveObservationItem]
     outcomes: list[WaveOutcomeItem]
+
+
+class ThemeFacet(BaseModel):
+    """One narrative theme with its live wave count. Themes with zero waves are still returned —
+    where nothing is converging is information, not an empty state to hide."""
+
+    name: str
+    description: str
+    wave_count: int
+
+
+class WeeklyWave(BaseModel):
+    """A wave as it appears in the weekly digest — the headline facts only."""
+
+    id: int
+    label: str | None
+    first_seen: date
+    member_count: int
+    themes: list[str]
+    best_lead_days: int | None
+    verdict: str | None
+    wave_growth: float | None
+    cohort_growth: float | None
+
+
+class WeeklyResponse(BaseModel):
+    """One week of the record: what formed, what got graded, and what we still cannot score.
+
+    ``map_gaps`` carries over from the gate — categories whose entities were excluded before being
+    scored at all because no exposure-map line touches them. A recurring gap is the system asking
+    for the map to grow, and it belongs in the weekly read rather than buried in one week's gate."""
+
+    week: date
+    formed: list[WeeklyWave]
+    graded: list[WeeklyWave]
+    map_gaps: dict[str, int]
+    available_weeks: list[str]

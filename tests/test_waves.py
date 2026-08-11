@@ -540,3 +540,94 @@ def test_outcome_before_the_horizon_is_never_a_verdict(db_session: Session) -> N
     assert rows
     assert all(r[0] == "unmeasurable" for r in rows)
     assert all(r[1]["horizon_reached"] is False for r in rows)
+
+
+# --- facets: theme is a filter over whole waves, never a parent -------------
+
+
+def test_categories_for_theme_maps_through_the_vocabulary() -> None:
+    from seismo.waves.facets import categories_for_theme
+
+    assert "agent-framework" in categories_for_theme("agent tooling")
+    assert "rag-framework" in categories_for_theme("retrieval & memory")
+
+
+def test_unknown_theme_matches_nothing_not_everything() -> None:
+    """A typo must not silently return an unfiltered list the reader believes is filtered."""
+    from seismo.waves.facets import categories_for_theme
+
+    assert categories_for_theme("not-a-real-theme") == []
+
+
+def test_a_wave_can_touch_two_themes(db_session: Session) -> None:
+    """The known convergence spanned agent-framework and rag-framework — two different themes.
+    Nesting waves under a category would have cut it in half at the navigation layer."""
+    from seismo.waves.facets import wave_themes
+
+    _guardrail_wave(db_session)
+    run_waves(db_session, AS_OF)
+    wave_id = db_session.execute(text("SELECT id FROM wave_clusters")).scalar_one()
+
+    themes = wave_themes(db_session, [wave_id])
+
+    assert themes[wave_id] == ["agent tooling", "retrieval & memory"]
+
+
+def test_api_theme_filter_returns_the_wave_under_both_themes(db_session: Session) -> None:
+    from fastapi.testclient import TestClient
+
+    from seismo.api.app import app, get_session
+
+    _guardrail_wave(db_session)
+    run_waves(db_session, AS_OF)
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    try:
+        agent = client.get("/waves", params={"theme": "agent tooling"}).json()
+        rag = client.get("/waves", params={"theme": "retrieval & memory"}).json()
+        missing = client.get("/waves", params={"theme": "hardware & systems"}).json()
+        bogus = client.get("/waves", params={"theme": "izmisljeno"}).json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert len(agent) == 1
+    assert agent[0]["id"] == rag[0]["id"], "the same wave must appear under both of its themes"
+    assert agent[0]["themes"] == ["agent tooling", "retrieval & memory"]
+    assert missing == []
+    assert bogus == []
+
+
+def test_api_lead_and_verdict_filters_compose(db_session: Session) -> None:
+    from fastapi.testclient import TestClient
+
+    from seismo.api.app import app, get_session
+
+    _guardrail_wave(db_session)
+    run_waves(db_session, AS_OF)
+    wave_id = db_session.execute(text("SELECT id FROM wave_clusters")).scalar_one()
+    db_session.add(
+        RawEvent(
+            source="hn",
+            source_event_uid="hn-lead",
+            event_type="story",
+            occurred_at=datetime(2026, 6, 14, tzinfo=UTC),
+            payload={"author": "early_bird", "title": "verbatimeter is the interesting one"},
+        )
+    )
+    db_session.flush()
+    find_for_wave(db_session, wave_id, AS_OF)
+
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    try:
+        near = client.get("/waves", params={"min_lead": 14}).json()
+        far = client.get("/waves", params={"min_lead": 90}).json()
+        ungraded = client.get("/waves", params={"verdict": "ungraded"}).json()
+        took_hold = client.get("/waves", params={"verdict": "took_hold"}).json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert len(near) == 1
+    assert far == []
+    assert len(ungraded) == 1, "no outcome has been evaluated, so the wave is ungraded"
+    assert took_hold == []

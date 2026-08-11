@@ -427,6 +427,7 @@ export interface WaveSummary {
   strength: number;
   member_count: number;
   categories: string[];
+  themes: string[];
   best_lead_days: number | null;
   verdict: string | null;
 }
@@ -451,4 +452,30 @@ export interface WaveDetail {
   members: WaveMemberItem[];
   observations: WaveObservationItem[];
   outcomes: WaveOutcomeItem[];
+}
+
+export interface ThemeFacet {
+  name: string;
+  description: string;
+  wave_count: number;
+}
+
+export interface WeeklyWave {
+  id: number;
+  label: string | null;
+  first_seen: string;
+  member_count: number;
+  themes: string[];
+  best_lead_days: number | null;
+  verdict: string | null;
+  wave_growth: number | null;
+  cohort_growth: number | null;
+}
+
+export interface WeeklyResponse {
+  week: string;
+  formed: WeeklyWave[];
+  graded: WeeklyWave[];
+  map_gaps: Record<string, number>;
+  available_weeks: string[];
 }
