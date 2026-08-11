@@ -141,7 +141,13 @@ def main() -> int:
             ("gate_decisions", ""),
         ):
             try:
-                n = _scalar(s, f"SELECT count(*) FROM {table}")  # noqa: S608 — literal table names
+                # A savepoint, not the outer transaction: an UndefinedTable on one row must not
+                # poison every check after it — Postgres aborts the whole transaction on error, so
+                # without this the first missing table makes every later one lie and say "absent"
+                # too, even tables that are actually populated (verified: gate_decisions with 2,650
+                # rows reported absent once wave_clusters, checked just before it, failed first).
+                with s.begin_nested():
+                    n = _scalar(s, f"SELECT count(*) FROM {table}")  # noqa: S608 — literal names
             except Exception:  # noqa: BLE001 — a missing table is information, not a crash
                 print(f"  {table:<26} {'absent':>8}  (migration not applied?)")
                 continue
