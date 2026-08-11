@@ -14,7 +14,8 @@ produces evidence-linked exposure analyses.
 
 | If you want to… | Read |
 |---|---|
-| **Understand how the system works** | **[ARCHITECTURE.md](ARCHITECTURE.md)** ← start here |
+| **Understand what we're building and why** | **[PRODUCT.md](PRODUCT.md)** ← start here |
+| **Understand how the system works** | **[ARCHITECTURE.md](ARCHITECTURE.md)** |
 | Know what's live right now | [STATE.md](STATE.md) |
 | Run a specific command | [COMMANDS.md](COMMANDS.md) |
 | Understand what the data means | [DATA_EXPLAINED.md](DATA_EXPLAINED.md) |
