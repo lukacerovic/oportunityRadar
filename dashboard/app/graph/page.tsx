@@ -33,6 +33,22 @@ export default async function GraphPage({
     );
   }
 
+  // Search view: auto-open the ✨ explanation panel for the best match — prefer the tracked
+  // artifact/org the user searched for over person nodes pulled in as neighbors. The full match
+  // set also becomes `focusEntityIds` — the searched-for node(s) stay visible no matter which
+  // filter checkboxes the user unchecks in GraphView.
+  let explainTarget: number | null = null;
+  let focusEntityIds: number[] = [];
+  if (q) {
+    const ql = q.toLowerCase();
+    const matches = data.nodes.filter(
+      (n) => n.entity_id != null && n.label.toLowerCase().includes(ql)
+    );
+    const preferred = matches.find((n) => n.entity_type !== "person") ?? matches[0];
+    explainTarget = preferred?.entity_id ?? null;
+    focusEntityIds = matches.map((n) => n.entity_id!).filter((id) => id != null);
+  }
+
   return (
     <>
       <TopNav active="/graph" />
@@ -106,7 +122,11 @@ export default async function GraphPage({
             )}
           </div>
         ) : (
-          <GraphViewLoader data={data} />
+          <GraphViewLoader
+            data={data}
+            explainEntityId={explainTarget}
+            focusEntityIds={focusEntityIds}
+          />
         )}
       </main>
     </>

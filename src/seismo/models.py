@@ -323,6 +323,10 @@ class EntityGraphEdge(Base):
     edge_type: Mapped[str] = mapped_column(Text, nullable=False)
     weight: Mapped[float] = mapped_column(REAL, nullable=False, server_default="1.0")
     since: Mapped[date | None] = mapped_column(Date)
+    # Relationship timeline from Wikidata P580/P582 qualifiers (migration 0014) — "employed_by
+    # OpenAI 2018–2024" on the edge itself. Null when the source claim carries no dates.
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
     evidence_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -519,6 +523,36 @@ class ContentSanityCheck(Base):
     model: Mapped[str] = mapped_column(Text, nullable=False)
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class GraphExplanation(Base):
+    """One narrated explanation of an entity's relationship subgraph (migration 0013).
+
+    ``content`` holds four markdown sections ({overview, key_people, organizations, signals})
+    written by the ``graph_explain_provider`` model from ONLY the facts in the subgraph — who
+    each person is, which edge brought them in, how the orgs relate, what the pedigree signals.
+    ``subgraph_hash`` fingerprints the exact nodes+edges the text describes, so the daily
+    ``explain-graphs`` step regenerates a row only when new enrichment changed the subgraph.
+    ``entity_id`` is UNIQUE — one live explanation per entity, upserted."""
+
+    __tablename__ = "graph_explanations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("entities.id"), nullable=False, unique=True
+    )
+    subgraph_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False, server_default="0")
+    node_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    edge_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 

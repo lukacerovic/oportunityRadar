@@ -8,6 +8,7 @@ import { CardPanel } from "@/components/CardPanel";
 import { MetricChart } from "@/components/MetricChart";
 import { MaturityLadder } from "@/components/MaturityLadder";
 import { EvidenceList } from "@/components/EvidenceList";
+import { CollectedPanel } from "@/components/CollectedPanel";
 import { CommunityDiscussion } from "@/components/CommunityDiscussion";
 import { CommunityVerdict } from "@/components/CommunityVerdict";
 import { MarketImpact } from "@/components/MarketImpact";
@@ -111,14 +112,7 @@ export default async function DossierPage({ params }: { params: { id: string } }
           <div className="space-y-4">
             <CardPanel card={d.card} />
 
-            {d.description && (
-              <div className="panel p-4">
-                <div className="label mb-2">What we collected</div>
-                <p className="whitespace-pre-line text-[13px] leading-relaxed text-muted">
-                  {d.description}
-                </p>
-              </div>
-            )}
+            <CollectedPanel description={d.description} tags={d.tags ?? []} />
 
             <section>
               <div className="mb-2 flex items-center gap-2">

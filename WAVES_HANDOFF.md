@@ -164,7 +164,7 @@ this is handled.
 ## 8. File map
 
 ```
-alembic/versions/0013_waves.py     4 tables: clusters, members, observations, outcomes
+alembic/versions/0015_waves.py     4 tables: clusters, members, observations, outcomes
 src/seismo/waves/
   detect.py                        candidates → neighbourhood projection → clusters → strength
   independence.py                  shared person / dependency / shared owner, collapse rule

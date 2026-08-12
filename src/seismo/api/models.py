@@ -54,20 +54,41 @@ class GraphNode(BaseModel):
 
 
 class GraphEdge(BaseModel):
-    """One edge — either from the deterministic spine (`entity_graph_edges`, every row justified
-    by a raw_event) or the LLM-reasoned relation graph (`entity_semantic_edges`, a model's
-    judgement). `kind` is what a consumer must check before trusting an edge as fact."""
+    """One edge — from the deterministic spine (`entity_graph_edges`, every row justified by a
+    raw_event), the LLM-reasoned relation graph (`entity_semantic_edges`, a model's judgement),
+    or a `heuristic` same-category overlap computed live in the `/graph` search view (no claimed
+    relationship — see `graph()`'s docstring). `kind` is what a consumer must check before
+    trusting an edge as fact."""
 
     source: str
     target: str
     relation: str
-    kind: str  # deterministic | reasoned
+    kind: str  # deterministic | reasoned | heuristic
     weight: float = 1.0
 
 
 class GraphResponse(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
+
+class GraphExplanationResponse(BaseModel):
+    """AI-narrated context for one entity's relationship subgraph (migration 0013) — the
+    dashboard's explanation side panel. ``stale`` means enrichment changed the subgraph since
+    the text was written; the next ``explain-graphs`` run will rewrite it."""
+
+    entity_id: int
+    entity_name: str
+    overview: str
+    key_people: str
+    organizations: str
+    industry_context: str = ""  # broader background, explicitly model knowledge not graph data
+    signals: str
+    model: str
+    updated_at: datetime
+    node_count: int
+    edge_count: int
+    stale: bool = False
 
 
 class RadarResponse(BaseModel):
@@ -182,6 +203,7 @@ class EntityDossier(BaseModel):
     provisional: bool
     cohort_n: int | None
     description: str | None  # aggregated readable text we've collected about it
+    tags: list[str] = []  # human-readable registry tags (HF tags / GitHub topics), latest event
     themes: list[str]  # research/market themes this entity belongs to
     maturity: list[MaturityRung]
     metrics: list[MetricSeries]

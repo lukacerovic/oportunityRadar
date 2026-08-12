@@ -83,6 +83,8 @@ if [ "${SKIP_ENRICH:-0}" != "1" ]; then
   # Team enrichment (WIKIDATA_ENRICHMENT_PLAN.md): who is behind each paper/repo/model —
   # employer history, founders. Un-enriched entities only, so coverage completes over days.
   run "enrich-wikidata" uv run seismo enrich-wikidata --limit "${WIKIDATA_LIMIT:-200}"
+  # PyPI metadata: requires_dist feeds the depends_on graph edges (un-enriched packages only).
+  run "enrich-pypi"     uv run seismo enrich-pypi --limit "${PYPI_LIMIT:-200}"
   run "resolve-enrich"  uv run seismo resolve
 fi
 # Content-sanity checkpoint: judges today's freshly-collected README/model-card/launch/discussion/
@@ -92,6 +94,12 @@ run "sanity" uv run seismo sanity --limit "${SANITY_LIMIT:-500}"
 # Graph edges (authored_by/built_by/cited/depends_on + wikidata team edges) — was manual-only;
 # without this the correlation graph silently goes stale as new evidence lands.
 run "derive-edges" uv run seismo derive-edges
+# AI-narrated graph context for the top trending entities. Hash-gated: only entities whose
+# subgraph CHANGED since the stored narration hit the LLM, so steady state is near-free.
+# Uses SEISMO_GRAPH_EXPLAIN_PROVIDER (claude_cli → billed to the Claude Code subscription).
+if [ "${SKIP_EXPLAIN:-0}" != "1" ]; then
+  run "explain-graphs" uv run seismo explain-graphs --limit "${EXPLAIN_LIMIT:-10}"
+fi
 run "snapshot" uv run seismo snapshot
 run "score"    uv run seismo score
 # Wave Radar (WAVE_PLAN.md): the only stage that asks a question about a *population* — several

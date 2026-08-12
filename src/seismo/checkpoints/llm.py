@@ -34,11 +34,13 @@ BRIEF_TOOL_NAME = "emit_brief"
 COUNCIL_TOOL_NAME = "emit_verdict"
 SANITY_TOOL_NAME = "emit_sanity_batch"
 COMMUNITY_TOOL_NAME = "emit_community_verdict"
+EXPLAIN_TOOL_NAME = "emit_graph_explanation"
 _MAX_TOKENS = 2048
 _BRIEF_MAX_TOKENS = 3072  # the brief schema (transmission path + exposures + observables) is larger
 _COUNCIL_MAX_TOKENS = 768  # a verdict is small: stance + confidence + one short argument
 _SANITY_MAX_TOKENS = 2048  # a batch of ~10 short verdicts, occasionally with a cleaned_text rewrite
 _COMMUNITY_MAX_TOKENS = 2048  # a short verdict: sentiment + a handful of pros/cons/points
+_EXPLAIN_MAX_TOKENS = 3072  # four markdown sections narrating a subgraph (people/orgs/signals)
 
 # Rough per-MTok (input, output) USD, for cost logging + the budget ceiling only. Confirm against
 # the current price sheet at go-live; dev/CI never spends (mock/ollama = $0).
@@ -182,6 +184,36 @@ def complete_community(
         max_tokens=_COMMUNITY_MAX_TOKENS,
         provider=settings.community_llm_provider or None,
         model=settings.community_model or None,
+        strict_cli=True,
+    )
+
+
+def complete_graph_explanation(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    fallback: dict[str, Any],
+    purpose: str = "live",
+) -> LLMResult:
+    """Narrate one entity's relationship subgraph (who the people are, why each org appears,
+    what the team pedigree signals) as structured markdown sections. Runs on
+    ``graph_explain_provider``/``graph_explain_model`` when set — narrative synthesis wants a
+    stronger model than the $0 card pipeline — falling back to the global provider when empty.
+
+    ``strict_cli``: like the community backlog, this writes durable rows the dashboard serves —
+    a silently-substituted fallback would read like a real explanation, so fail loudly instead."""
+    return _complete(
+        system,
+        user,
+        schema,
+        fallback=fallback,
+        purpose=purpose,
+        tool_name=EXPLAIN_TOOL_NAME,
+        tool_description="Return the narrated explanation of this relationship graph.",
+        max_tokens=_EXPLAIN_MAX_TOKENS,
+        provider=settings.graph_explain_provider or None,
+        model=settings.graph_explain_model or None,
         strict_cli=True,
     )
 

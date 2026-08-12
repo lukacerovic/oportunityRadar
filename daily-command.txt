@@ -1,6 +1,6 @@
 Your daily routine now
 
-1. Open the Ollama app.
+1. Open the Ollama app.???
 2. cd ~/Desktop/OportunityRadar && ./scripts/daily.sh
 3. When you want to look at results: uv run seismo serve + cd dashboard && npm run dev → open localhost:3000.
 

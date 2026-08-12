@@ -450,6 +450,32 @@ def score(as_of: str = typer.Option(None, help="ISO date; default now.")) -> Non
         typer.echo(f"[score] as_of={when.date()} — {stats.as_note()}")
 
 
+@app.command(name="explain-graphs")
+def explain_graphs(
+    limit: int = typer.Option(10, help="Top trending entities to (re)narrate this run."),
+    entity_id: int = typer.Option(None, help="Explain ONE entity's subgraph (bypasses ranking)."),
+    force: bool = typer.Option(
+        False, "--force", help="Regenerate even if the subgraph is unchanged."
+    ),
+) -> None:
+    """AI-narrated graph context (graph_explanations) — who the people in an entity's
+    relationship graph are, why each org appears, what the team pedigree signals. Regenerates
+    ONLY entities whose subgraph changed since the stored narration (hash check), so daily runs
+    are near-free once coverage exists. Provider: ``SEISMO_GRAPH_EXPLAIN_PROVIDER``
+    (claude_cli recommended — narrative synthesis needs a stronger model than the $0 cards)."""
+    from seismo.db import session_scope
+    from seismo.graph.explain import explain_entity, run_explain
+
+    with record_pipeline_run("explain-graphs"):
+        with session_scope() as session:
+            if entity_id is not None:
+                outcome, cost = explain_entity(session, entity_id, force=force)
+                typer.echo(f"[explain-graphs] entity={entity_id} — {outcome} (${cost:.4f})")
+                return
+            stats = run_explain(session, limit=limit, force=force)
+        typer.echo(f"[explain-graphs] {stats.as_note()}")
+
+
 @app.command(name="derive-edges")
 def derive_edges_cmd(as_of: str = typer.Option(None, help="ISO date; default now.")) -> None:
     """Layer 2 — typed entity-graph edges (Feature 1). Pure + as-of correct: derives ``built_by`` /

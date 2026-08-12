@@ -339,7 +339,12 @@ def test_affiliations_from_person_event(clean_db: Session) -> None:
             "claims": {
                 "P108": [
                     {"qid": "QTM", "label": "Thinking Machines Lab"},
-                    {"qid": "QOAI", "label": "OpenAI", "end": "+2020-06-01T00:00:00Z"},
+                    {
+                        "qid": "QOAI",
+                        "label": "OpenAI",
+                        "start": "+2018-00-00T00:00:00Z",
+                        "end": "+2020-06-01T00:00:00Z",
+                    },
                 ],
                 "P69": [{"qid": "QDART", "label": "Dartmouth College"}],
                 "P184": [{"qid": "QADV", "label": "Some Advisor"}],
@@ -377,6 +382,11 @@ def test_affiliations_from_person_event(clean_db: Session) -> None:
     assert [(e["src_entity_id"], e["dst_entity_id"]) for e in current] == [(mira, tm)]
     assert [(e["src_entity_id"], e["dst_entity_id"]) for e in former] == [(mira, oai)]
     assert current[0]["evidence_refs"] == [raw]
+    # P580/P582 qualifiers land on the edge itself (migration 0014); 00-month clamps to Jan.
+    span = session.execute(
+        text("SELECT start_date, end_date FROM entity_graph_edges WHERE edge_type='formerly_at'")
+    ).one()
+    assert str(span[0]) == "2018-01-01" and str(span[1]) == "2020-06-01"
     names = {
         r[0]
         for r in session.execute(
@@ -414,6 +424,7 @@ def test_affiliations_from_org_event_founded(clean_db: Session) -> None:
                 "P1951": [{"qid": "QA16Z", "label": "Andreessen Horowitz"}],
                 "P127": [{"qid": "QOWNER", "label": "Holding Co"}],
                 "P749": [{"qid": "QPARENT", "label": "Parent Group"}],
+                "P1056": [{"qid": "QPROD", "label": "Inkling API"}],
             },
         },
     )
@@ -437,14 +448,179 @@ def test_affiliations_from_org_event_founded(clean_db: Session) -> None:
     assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "subsidiary_of")] == [
         (org, parent)
     ]
+    # P1056: what the org makes, as a first-class work entity.
+    assert stats.produces == 1
+    product = _entity_by_anchor(session, "wikidata", "QPROD")
+    assert product is not None
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "produces")] == [
+        (org, product)
+    ]
     mira = _entity_by_anchor(session, "wikidata", "QMIRA")
     assert mira is not None
-    edges = _edges(session, "founded")
-    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in edges] == [(mira, org)]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "founded")] == [
+        (mira, org)
+    ]
     assert stats.developed_by == 1, "only the handle's own model links, not other orgs' models"
-    dev = _edges(session, "developed_by")
-    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in dev] == [(model, org)]
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "developed_by")] == [
+        (model, org)
+    ]
     assert other_model  # tracked but untouched — asserted via the counts above
+
+
+def test_work_event_links_developer_and_tracked_repo(clean_db: Session) -> None:
+    """A work's P178 becomes developed_by → org; P1324 links to a repo we ALREADY track and
+    never mints repos from URLs."""
+    session = clean_db
+    work = _entity(session, "ChatGPT", etype="work", anchors={"wikidata": "QCHATGPT"})
+    repo = _entity(session, "openai/chatgpt", anchors={"github": "openai/chatgpt"})
+    _event(
+        session,
+        work,
+        event_type="wikidata_entity",
+        source="wikidata",
+        payload={
+            "qid": "QCHATGPT",
+            "entity_type": "work",
+            "claims": {
+                "P178": [{"qid": "QOAI", "label": "OpenAI"}],
+                "P1324": [
+                    {"value": "https://github.com/openai/chatgpt"},
+                    {"value": "https://github.com/nobody/untracked-repo"},
+                ],
+            },
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.developed_by == 1 and stats.orgs_created == 1
+    oai = _entity_by_anchor(session, "wikidata", "QOAI")
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "developed_by")] == [
+        (work, oai)
+    ]
+    assert stats.source_repo == 1, "only the tracked repo links; the unknown URL mints nothing"
+    assert [(e["src_entity_id"], e["dst_entity_id"]) for e in _edges(session, "source_repo")] == [
+        (work, repo)
+    ]
+    assert _entity_by_anchor(session, "github", "nobody/untracked-repo") is None
+
+
+# --- lineage: fine_tuned_from + model->paper cited ---------------------------
+
+
+def test_lineage_fine_tuned_from_tracked_base_only(clean_db: Session) -> None:
+    session = clean_db
+    derived = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    base = _entity(session, "meta/base", etype="model", anchors={"hf": "meta/base"})
+    raw = _event(
+        session,
+        derived,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": ["base_model:meta/base", "base_model:nobody/untracked"],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.fine_tuned_from == 1, "only the tracked base is linked, never the untracked one"
+    edges = _edges(session, "fine_tuned_from")
+    assert len(edges) == 1
+    assert edges[0]["src_entity_id"] == derived and edges[0]["dst_entity_id"] == base
+    assert edges[0]["evidence_refs"] == [raw]
+    # The untracked base was never minted as an entity.
+    assert _entity_by_anchor(session, "hf", "nobody/untracked") is None
+
+
+def test_lineage_qualified_base_model_tags_parse(clean_db: Session) -> None:
+    """Qualified forms (finetune/quantized/merge/adapter) and mixed case all resolve to the same
+    lowercased HF id — and dedupe to a single edge per (model, base)."""
+    session = clean_db
+    derived = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    base = _entity(session, "meta/base", etype="model", anchors={"hf": "meta/base"})
+    _event(
+        session,
+        derived,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": [
+                "base_model:finetune:Meta/Base",
+                "base_model:quantized:meta/base",
+                "base_model:merge:meta/base",
+                "base_model:adapter:meta/base",
+            ],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.fine_tuned_from == 1, "all qualified forms collapse to one edge to the same base"
+    edges = _edges(session, "fine_tuned_from")
+    assert len(edges) == 1
+    assert edges[0]["src_entity_id"] == derived and edges[0]["dst_entity_id"] == base
+
+
+def test_lineage_arxiv_tag_mints_paper_and_cites(clean_db: Session) -> None:
+    session = clean_db
+    model = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    raw = _event(
+        session,
+        model,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": ["arxiv:2405.04434", "arxiv:2405.04434", "region:us"],
+        },
+    )
+    session.flush()
+
+    stats = derive_edges(session, AS_OF)
+
+    assert stats.cited == 1, "the repeated arxiv tag dedupes to one edge"
+    assert stats.papers_created == 1
+    paper = _entity_by_anchor(session, "arxiv", "2405.04434")
+    assert paper is not None
+    edges = _edges(session, "cited")
+    assert len(edges) == 1
+    assert edges[0]["src_entity_id"] == model and edges[0]["dst_entity_id"] == paper
+    assert edges[0]["evidence_refs"] == [raw]
+
+
+def test_lineage_rerun_is_idempotent(clean_db: Session) -> None:
+    session = clean_db
+    derived = _entity(session, "acme/derived", etype="model", anchors={"hf": "acme/derived"})
+    _entity(session, "meta/base", etype="model", anchors={"hf": "meta/base"})
+    _event(
+        session,
+        derived,
+        event_type="model_discovered",
+        source="hf",
+        payload={
+            "id": "acme/derived",
+            "tags": ["base_model:finetune:meta/base", "arxiv:2405.04434"],
+        },
+    )
+    session.flush()
+
+    first = derive_edges(session, AS_OF)
+    session.flush()
+    n_after_first = len(_edges(session))
+
+    second = derive_edges(session, AS_OF)
+    session.flush()
+
+    assert first.fine_tuned_from == second.fine_tuned_from == 1
+    assert first.cited == second.cited == 1
+    assert second.papers_created == 0, "the paper anchor already exists on re-run"
+    assert n_after_first == len(_edges(session)), "no duplicate edges on re-run"
 
 
 # --- idempotency ------------------------------------------------------------

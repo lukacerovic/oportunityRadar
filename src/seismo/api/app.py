@@ -347,9 +347,26 @@ def dossier(
         ).all()
     ]
 
-    description = (attrs.get("text") or "").strip() or None
+    # "What we collected": prefer the latest deep-content enrichment event (a readme / launch
+    # page — clean markdown the UI can render) over attrs['text'], which is the LLM evidence
+    # blob (title + tags + text concatenated) and reads as soup when shown raw.
+    readme = session.execute(
+        text(
+            """
+            SELECT r.payload->>'text'
+            FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
+            WHERE l.entity_id = :id AND l.rule = 'attach' AND r.occurred_at <= :as_of
+              AND r.event_type IN ('model_readme', 'repo_readme', 'launch_page')
+              AND COALESCE(r.payload->>'text', '') <> ''
+            ORDER BY r.occurred_at DESC LIMIT 1
+            """
+        ),
+        {"id": canonical, "as_of": as_of},
+    ).scalar()
+    description = str(readme or attrs.get("text") or "").strip() or None
     if description:
-        description = description[:2000]
+        description = description[:6000]
+    tags = _display_tags(session, canonical, as_of)
 
     return m.EntityDossier(
         id=canonical,
@@ -365,6 +382,7 @@ def dossier(
         provisional=bool(inputs.get("provisional", False)),
         cohort_n=inputs.get("cohort_n"),
         description=description,
+        tags=tags,
         themes=themes,
         maturity=maturity,
         metrics=metrics,
@@ -440,6 +458,39 @@ def _dt_or_none(value: Any) -> datetime | None:
         return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     except ValueError:
         return None
+
+
+def _display_tags(session: Session, canonical: int, as_of: datetime) -> list[str]:
+    """Human-readable tags from the newest attached event that carries any (HF ``tags`` or
+    GitHub ``topics``). Machine tags (``base_model:``/``arxiv:``/``region:``…) are dropped —
+    they live elsewhere (graph edges, anchors); ``license:`` is kept, it's information."""
+    rows = session.execute(
+        text(
+            """
+            SELECT r.payload->'tags' AS tags, r.payload->'topics' AS topics
+            FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
+            WHERE l.entity_id = :id AND l.rule = 'attach' AND r.occurred_at <= :as_of
+              AND (jsonb_typeof(r.payload->'tags') = 'array'
+                   OR jsonb_typeof(r.payload->'topics') = 'array')
+            ORDER BY r.occurred_at DESC LIMIT 5
+            """
+        ),
+        {"id": canonical, "as_of": as_of},
+    ).mappings()
+    for row in rows:
+        tags = row["tags"] if isinstance(row["tags"], list) else []
+        topics = row["topics"] if isinstance(row["topics"], list) else []
+        raw = [t for t in tags + topics if isinstance(t, str)]
+        out: list[str] = []
+        for tag in raw:
+            prefix, sep, _ = tag.partition(":")
+            if sep and prefix != "license":
+                continue
+            if tag not in out:
+                out.append(tag)
+        if out:
+            return out[:20]
+    return []
 
 
 def _evidence(session: Session, canonical: int, as_of: datetime) -> list[m.EvidenceItem]:
@@ -1468,7 +1519,8 @@ def graph(
                 """
                 SELECT se.src_entity_id, se.dst_entity_id, se.src_label, se.dst_label,
                        se.relation, se.confidence_score,
-                       e1.category AS src_cat, e2.category AS dst_cat
+                       e1.category AS src_cat, e1.entity_type AS src_type,
+                       e2.category AS dst_cat, e2.entity_type AS dst_type
                 FROM entity_semantic_edges se
                 LEFT JOIN entities e1 ON e1.id = se.src_entity_id
                 LEFT JOIN entities e2 ON e2.id = se.dst_entity_id
@@ -1489,6 +1541,7 @@ def graph(
             m.GraphNode(
                 id=sid, label=r["src_label"], kind="entity" if src_eid is not None else "concept",
                 category=r["src_cat"], entity_id=src_eid, seed=is_seed(src_eid),
+                entity_type=r["src_type"],
             ),
         )
         nodes.setdefault(
@@ -1496,6 +1549,7 @@ def graph(
             m.GraphNode(
                 id=did, label=r["dst_label"], kind="entity" if dst_eid is not None else "concept",
                 category=r["dst_cat"], entity_id=dst_eid, seed=is_seed(dst_eid),
+                entity_type=r["dst_type"],
             ),
         )
         edges.append(
@@ -1524,7 +1578,191 @@ def graph(
                 info=r["info"],
             )
 
+    # "Similar Projects" / "Similar Companies" (search view only): a same-category overlap
+    # heuristic, not a claim of any real relationship — deliberately NOT entity_semantic_edges
+    # (that table holds actual LLM judgements, sparsely populated from a one-time /graphify
+    # rebuild; GRAPH_PLAN.md forbids wiring that regeneration into daily.sh). `category` is a
+    # free, always-on signal (seed/categories.yaml, ~30 controlled values) every repo/model/
+    # package/paper/work entity already carries, so this works for the whole universe today.
+    # Capped per-anchor (6) and overall (20) so a common category doesn't flood the view.
+    if q and filter_ids:
+        existing_eids = {n.entity_id for n in nodes.values() if n.entity_id is not None}
+        seed_id_list = list(seed_ids)
+        added = 0
+
+        proj_rows = session.execute(
+            text(
+                """
+                WITH anchors AS (
+                    SELECT id, category FROM entities
+                    WHERE id = ANY(:anchors) AND entity_type IN
+                          ('repo', 'model', 'package', 'paper', 'work')
+                      AND category IS NOT NULL AND merged_into IS NULL
+                ),
+                ranked AS (
+                    SELECT a.id AS anchor_id, e.id AS similar_id, e.canonical_name,
+                           e.category, e.entity_type,
+                           row_number() OVER (
+                               PARTITION BY a.id
+                               ORDER BY (e.id = ANY(:seeds)) DESC, e.id DESC
+                           ) AS rn
+                    FROM anchors a
+                    JOIN entities e
+                      ON e.category = a.category AND e.id != a.id AND e.merged_into IS NULL
+                )
+                SELECT anchor_id, similar_id, canonical_name, category, entity_type
+                FROM ranked WHERE rn <= 6
+                """
+            ),
+            {"anchors": filter_ids, "seeds": seed_id_list},
+        ).mappings().all()
+        for r in proj_rows:
+            aid = entity_id_of(r["anchor_id"])
+            if aid not in nodes:
+                continue  # shouldn't happen post-`missing`; skip defensively
+            sim_eid = r["similar_id"]
+            sid_node = entity_id_of(sim_eid)
+            if sid_node not in nodes:
+                if added >= 20:
+                    continue
+                nodes[sid_node] = m.GraphNode(
+                    id=sid_node, label=r["canonical_name"], kind="entity",
+                    category=r["category"], entity_id=sim_eid, seed=is_seed(sim_eid),
+                    entity_type=r["entity_type"],
+                )
+                existing_eids.add(sim_eid)
+                added += 1
+            edges.append(
+                m.GraphEdge(
+                    source=aid, target=sid_node, relation="same_category",
+                    kind="heuristic", weight=1.0,
+                )
+            )
+
+        # Similar Companies: orgs don't carry `category` directly, so derive one from the
+        # projects they develop/produce (same edge shapes graph/edges.py already mints) and
+        # match orgs on overlap of THAT derived set.
+        org_rows = session.execute(
+            text(
+                """
+                WITH org_categories AS (
+                    SELECT ge.dst_entity_id AS org_id, e.category
+                    FROM entity_graph_edges ge JOIN entities e ON e.id = ge.src_entity_id
+                    WHERE ge.edge_type = 'developed_by' AND e.category IS NOT NULL
+                    UNION
+                    SELECT ge.src_entity_id AS org_id, e.category
+                    FROM entity_graph_edges ge JOIN entities e ON e.id = ge.dst_entity_id
+                    WHERE ge.edge_type = 'produces' AND e.category IS NOT NULL
+                ),
+                pairs AS (
+                    SELECT DISTINCT ac.org_id AS anchor_org, oc.org_id AS similar_org
+                    FROM org_categories ac
+                    JOIN org_categories oc ON oc.category = ac.category AND oc.org_id != ac.org_id
+                    WHERE ac.org_id = ANY(:anchors)
+                ),
+                ranked AS (
+                    SELECT anchor_org, similar_org,
+                           row_number() OVER (
+                               PARTITION BY anchor_org
+                               ORDER BY (similar_org = ANY(:seeds)) DESC, similar_org DESC
+                           ) AS rn
+                    FROM pairs
+                )
+                SELECT r.anchor_org, r.similar_org, e.canonical_name, e.category, e.entity_type
+                FROM ranked r JOIN entities e ON e.id = r.similar_org
+                WHERE r.rn <= 6 AND e.merged_into IS NULL
+                """
+            ),
+            {"anchors": filter_ids, "seeds": seed_id_list},
+        ).mappings().all()
+        for r in org_rows:
+            aid = entity_id_of(r["anchor_org"])
+            if aid not in nodes:
+                continue
+            sim_eid = r["similar_org"]
+            sid_node = entity_id_of(sim_eid)
+            if sid_node not in nodes:
+                if added >= 20:
+                    continue
+                nodes[sid_node] = m.GraphNode(
+                    id=sid_node, label=r["canonical_name"], kind="entity",
+                    category=r["category"], entity_id=sim_eid, seed=is_seed(sim_eid),
+                    entity_type=r["entity_type"],
+                )
+                existing_eids.add(sim_eid)
+                added += 1
+            edges.append(
+                m.GraphEdge(
+                    source=aid, target=sid_node, relation="same_category",
+                    kind="heuristic", weight=1.0,
+                )
+            )
+
     return m.GraphResponse(nodes=list(nodes.values()), edges=edges)
+
+
+def _explanation_response(session: Session, entity_id: int) -> m.GraphExplanationResponse:
+    row = session.execute(
+        text(
+            """
+            SELECT ge.content, ge.model, ge.updated_at, ge.subgraph_hash,
+                   ge.node_count, ge.edge_count, e.canonical_name
+            FROM graph_explanations ge JOIN entities e ON e.id = ge.entity_id
+            WHERE ge.entity_id = :id
+            """
+        ),
+        {"id": entity_id},
+    ).first()
+    if row is None:
+        raise HTTPException(404, "no explanation generated for this entity yet")
+    content, model, updated_at, stored_hash, node_count, edge_count, name = row
+    from seismo.graph.explain import build_subgraph
+
+    sub = build_subgraph(session, entity_id)
+    return m.GraphExplanationResponse(
+        entity_id=entity_id,
+        entity_name=name,
+        overview=str(content.get("overview", "")),
+        key_people=str(content.get("key_people", "")),
+        organizations=str(content.get("organizations", "")),
+        industry_context=str(content.get("industry_context", "")),
+        signals=str(content.get("signals", "")),
+        model=model,
+        updated_at=updated_at,
+        node_count=node_count,
+        edge_count=edge_count,
+        stale=bool(sub and sub.edges and sub.hash != stored_hash),
+    )
+
+
+@app.get("/graph/explain", response_model=m.GraphExplanationResponse)
+def graph_explain(
+    entity_id: int = Query(..., description="Focus entity whose subgraph narration to fetch."),
+    session: Session = Depends(get_session),
+) -> m.GraphExplanationResponse:
+    """The stored AI narration for an entity's relationship graph — served instantly; generation
+    happens in the daily ``explain-graphs`` step or via POST (on demand)."""
+    return _explanation_response(session, entity_id)
+
+
+@app.post("/graph/explain", response_model=m.GraphExplanationResponse)
+def graph_explain_generate(
+    entity_id: int = Query(..., description="Focus entity to narrate NOW (synchronous)."),
+    session: Session = Depends(get_session),
+) -> m.GraphExplanationResponse:
+    """Generate (or refresh) one entity's narration on demand. Synchronous — with claude_cli
+    expect ~20-60s; the panel shows a progress state. 422 when the entity has no relationships
+    to narrate."""
+    from seismo.graph.explain import explain_entity
+
+    try:
+        outcome, _cost = explain_entity(session, entity_id)
+    except Exception as exc:  # noqa: BLE001 — surface generation failures as a clean 502
+        raise HTTPException(502, f"explanation generation failed: {exc}") from exc
+    if outcome == "empty":
+        raise HTTPException(422, "this entity has no relationships to narrate yet")
+    session.commit()
+    return _explanation_response(session, entity_id)
 
 
 def _f(value: Any) -> float | None:

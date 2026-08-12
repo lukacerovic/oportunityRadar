@@ -205,6 +205,8 @@ _WIKIDATA_LABEL_PROPS = {
     "P452": "industry",
     "P106": "occupation",
     "P166": "awards",
+    "P275": "license",  # works
+    "P277": "language",  # works
 }
 
 
@@ -248,13 +250,25 @@ def _wikidata_card(p: dict[str, Any]) -> dict[str, Any]:
         if entry.get("role_label") and entry.get("label"):
             positions.append(f"{entry['role_label']} — {entry['label']}")
 
+    def quantity(prop: str) -> str | None:
+        for entry in claims.get(prop) or []:
+            if entry.get("value"):
+                unit = entry.get("unit_label")
+                return f"{entry['value']} {unit}" if unit else str(entry["value"])
+        return None
+
     card: dict[str, Any] = {"qid": p.get("qid"), "description": p.get("description") or None}
     if positions:
         card["positions"] = positions[:8]
+    if p.get("wiki_intro"):
+        card["wiki"] = str(p["wiki_intro"])[:700]
     card["website"] = first_value("P856")
     card["inception"] = first_year("P571")
     card["dissolved"] = first_year("P576")
     card["employees"] = first_value("P1128")
+    card["revenue"] = quantity("P2139")
+    card["market_cap"] = quantity("P2226")
+    card["twitter"] = first_value("P2002")
     for prop, key in _WIKIDATA_LABEL_PROPS.items():
         labels = [str(e["label"]) for e in claims.get(prop) or [] if e.get("label")]
         if labels:

@@ -26,6 +26,7 @@ provides ours) and politeness — one request/second via ``RateLimiter``, capped
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -37,6 +38,8 @@ from sqlalchemy.orm import Session
 
 from seismo.collectors.base import RateLimiter, RawEventDraft
 from seismo.collectors.http import make_client
+
+logger = logging.getLogger(__name__)
 
 API = "https://www.wikidata.org/w/api.php"
 HF_ORG_URL = "https://huggingface.co/api/organizations/{handle}/overview"
@@ -65,6 +68,10 @@ KEPT_PROPS = {
     # --- identity back-links ---
     "P2037",  # GitHub username (back-link to our github:user:* anchors)
     "P496",  # ORCID (stored for future author dedupe)
+    # --- works & products (edges) ---
+    "P178",  # developer (on a work) -> developed_by, work -> org
+    "P1324",  # source code repository URL -> source_repo edge to a TRACKED github entity
+    "P1056",  # product or material produced (on an org) -> produces, org -> work
     # --- display attributes (node panel, not edges) ---
     "P571",  # inception
     "P576",  # dissolved — a former employer that collapsed reads differently
@@ -74,6 +81,12 @@ KEPT_PROPS = {
     "P106",  # occupation
     "P166",  # award received — credibility signal, shown on the person, not drawn as edges
     "P1128",  # employee count
+    "P2139",  # total revenue (org card)
+    "P2226",  # market capitalization (org card)
+    "P2002",  # X/Twitter username
+    "P4033",  # Mastodon address
+    "P275",  # license (work card)
+    "P277",  # programming language (work card)
 }
 
 _HUMAN = "Q5"
@@ -150,10 +163,20 @@ class WikidataClient:
         self._limiter = RateLimiter(min_interval_s)
 
     def _get(self, **params: Any) -> dict[str, Any]:
-        self._limiter.wait()
-        resp = self._client.get(API, params={"format": "json", **params})
-        resp.raise_for_status()
-        return resp.json()
+        """One rate-limited GET with a single retry — hour-long batch runs WILL see a dropped
+        keep-alive connection eventually, and one transient disconnect must not cost the run."""
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                self._limiter.wait()
+                resp = self._client.get(API, params={"format": "json", **params})
+                resp.raise_for_status()
+                return resp.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                last_exc = exc
+                if attempt == 0:
+                    continue
+        raise last_exc  # type: ignore[misc]
 
     def search_by_github_login(self, login: str) -> str | None:
         """Exact P2037 statement search — a hit IS the person; no scoring."""
@@ -179,31 +202,50 @@ class WikidataClient:
         ]
 
     def fetch_entities(self, qids: list[str]) -> dict[str, dict[str, Any]]:
-        """Claims + label + description for up to 50 QIDs in ONE request."""
+        """Claims + label + description + sitelinks for up to 50 QIDs in ONE request."""
         if not qids:
             return {}
         data = self._get(
             action="wbgetentities",
             ids="|".join(qids[:50]),
-            props="claims|labels|descriptions",
+            props="claims|labels|descriptions|sitelinks",
             languages="en",
         )
         return data.get("entities") or {}
 
     def fetch_labels(self, qids: list[str]) -> dict[str, str]:
-        """English labels for claim-target QIDs (employer names etc.), one batched request."""
-        if not qids:
-            return {}
-        data = self._get(
-            action="wbgetentities", ids="|".join(sorted(set(qids))[:50]), props="labels",
-            languages="en",
-        )
+        """English labels for claim-target QIDs (employer names etc.). Chunked: the API takes 50
+        ids per call, and a well-connected org easily references more — the old single-call
+        version left overflow targets nameless (a bare 'Q2616400' where Y Combinator belongs)."""
         out: dict[str, str] = {}
-        for qid, ent in (data.get("entities") or {}).items():
-            label = (ent.get("labels") or {}).get("en", {}).get("value")
-            if label:
-                out[qid] = label
+        unique = sorted(set(qids))
+        for i in range(0, len(unique), 50):
+            data = self._get(
+                action="wbgetentities",
+                ids="|".join(unique[i : i + 50]),
+                props="labels",
+                languages="en",
+            )
+            for qid, ent in (data.get("entities") or {}).items():
+                label = (ent.get("labels") or {}).get("en", {}).get("value")
+                if label:
+                    out[qid] = label
         return out
+
+    def fetch_wikipedia_intro(self, title: str) -> str | None:
+        """The English Wikipedia lead paragraph — the real 'who is this' context the one-line
+        Wikidata description can't give. Best-effort: any failure returns None."""
+        try:
+            self._limiter.wait()
+            resp = self._client.get(
+                f"https://en.wikipedia.org/api/rest_v1/page/summary/{title.replace(' ', '_')}"
+            )
+            if resp.status_code != 200:
+                return None
+            extract = (resp.json() or {}).get("extract")
+            return str(extract)[:700] if extract else None
+        except (httpx.HTTPError, ValueError):
+            return None
 
 
 # --- pure claim helpers (unit-testable, no network) ---------------------------
@@ -269,8 +311,14 @@ def prune_claims(claims: dict[str, Any], labels: dict[str, str]) -> dict[str, An
                 entries.append(entry)
             elif isinstance(value, dict) and value.get("time"):  # P571 / P576 dates
                 entries.append({"time": str(value["time"])})
-            elif isinstance(value, dict) and value.get("amount"):  # P1128 quantity
-                entries.append({"value": str(value["amount"]).lstrip("+")})
+            elif isinstance(value, dict) and value.get("amount"):  # quantities (P1128/P2139/P2226)
+                entry = {"value": str(value["amount"]).lstrip("+")}
+                unit = str(value.get("unit") or "")  # ".../entity/Q4917" == United States dollar
+                if "/entity/Q" in unit:
+                    entry["unit_qid"] = unit.rsplit("/", 1)[-1]
+                    if entry["unit_qid"] in labels:
+                        entry["unit_label"] = labels[entry["unit_qid"]]
+                entries.append(entry)
             elif isinstance(value, str):  # P2037 / P496 / P856 string values
                 entries.append({"value": value})
         if entries:
@@ -284,7 +332,7 @@ def claim_target_qids(pruned: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for entries in pruned.values():
         for e in entries:
-            for key in ("qid", "role_qid", "of_qid"):
+            for key in ("qid", "role_qid", "of_qid", "unit_qid"):
                 if e.get(key):
                     out.append(str(e[key]))
     return out
@@ -408,12 +456,16 @@ def select_targets(session: Session, *, limit: int | None = 200) -> list[Wikidat
             SELECT e.id, e.entity_type, e.attrs->'anchors'->>'wikidata' AS qid
             FROM entities e
             WHERE e.attrs->'anchors' ? 'wikidata'
-              AND e.entity_type IN ('person', 'org')
+              AND e.entity_type IN ('person', 'org', 'work')
               AND e.merged_into IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM entity_links l JOIN raw_events r ON r.id = l.raw_event_id
                 WHERE l.entity_id = e.id AND r.event_type = 'wikidata_entity')
-            ORDER BY e.id DESC
+            -- Hubs first: the frontier self-expands faster than any budget drains it, and a
+            -- stub with 40 edges (OpenAI) is on every trending screen while a stub with one
+            -- edge (a sibling campus) is noise. Degree = how much the graph needs this fetch.
+            ORDER BY (SELECT count(*) FROM entity_graph_edges ge
+                      WHERE ge.src_entity_id = e.id OR ge.dst_entity_id = e.id) DESC, e.id DESC
             """
             + ("LIMIT :limit" if limit is not None else "")
         ),
@@ -533,6 +585,24 @@ def enrich_targets(
     result = EnrichResult()
     fetched_at = now or datetime.now(UTC)
     for target in targets:
+        try:
+            _enrich_one(client, target, fetched_at, result, org_name_lookup)
+        except Exception:  # noqa: BLE001 — a dead connection on target 400 must not lose 1-399
+            logger.warning("wikidata enrich failed for %s %r", target.kind, target.query)
+            result.skipped += 1
+    return result
+
+
+def _enrich_one(
+    client: WikidataClient,
+    target: WikidataTarget,
+    fetched_at: datetime,
+    result: EnrichResult,
+    org_name_lookup: Any,
+) -> None:
+    """Resolve + fetch + draft ONE target; appends to ``result``. Raises on network failure —
+    the caller catches per target so a mid-batch disconnect costs one entity, not the run."""
+    if True:
         if target.kind == "qid":
             resolution = resolve_qid(client, target.query)
         elif target.kind == "person_login":
@@ -544,12 +614,19 @@ def enrich_targets(
             resolution = resolve_org(client, display)
         if resolution is None:
             result.skipped += 1
-            continue
+            return
 
         entity = client.fetch_entities([resolution.qid]).get(resolution.qid) or {}
         raw_claims = entity.get("claims") or {}
         labels = client.fetch_labels(claim_target_qids(prune_claims(raw_claims, {})))
         pruned = prune_claims(raw_claims, labels)
+
+        # Wikipedia lead paragraph via the enwiki sitelink — real "who is this" context for the
+        # node panel and the ✨ narration; the Wikidata description is a single line.
+        wiki_intro: str | None = None
+        enwiki = ((entity.get("sitelinks") or {}).get("enwiki") or {}).get("title")
+        if enwiki:
+            wiki_intro = client.fetch_wikipedia_intro(str(enwiki))
 
         # Claim targets are minted with a GUESSED type (a P127 owner defaults to org but may be
         # a person like Musk); once we fetch the real item, its P31 is authoritative — let it
@@ -568,6 +645,7 @@ def enrich_targets(
             "description": resolution.description,
             "match_rule": resolution.match_rule,
             "match_evidence": resolution.match_evidence,
+            "wiki_intro": wiki_intro,
             "claims": pruned,
             # Attachment: persons carry their EXISTING anchor; a new org carries its QID anchor
             # so resolve mints the org entity (see primary_anchor's 'wikidata' branch).
@@ -585,4 +663,3 @@ def enrich_targets(
                 payload=payload,
             )
         )
-    return result
