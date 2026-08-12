@@ -54,14 +54,16 @@ class GraphNode(BaseModel):
 
 
 class GraphEdge(BaseModel):
-    """One edge — either from the deterministic spine (`entity_graph_edges`, every row justified
-    by a raw_event) or the LLM-reasoned relation graph (`entity_semantic_edges`, a model's
-    judgement). `kind` is what a consumer must check before trusting an edge as fact."""
+    """One edge — from the deterministic spine (`entity_graph_edges`, every row justified by a
+    raw_event), the LLM-reasoned relation graph (`entity_semantic_edges`, a model's judgement),
+    or a `heuristic` same-category overlap computed live in the `/graph` search view (no claimed
+    relationship — see `graph()`'s docstring). `kind` is what a consumer must check before
+    trusting an edge as fact."""
 
     source: str
     target: str
     relation: str
-    kind: str  # deterministic | reasoned
+    kind: str  # deterministic | reasoned | heuristic
     weight: float = 1.0
 
 

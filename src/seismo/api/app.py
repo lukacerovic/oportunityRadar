@@ -1517,7 +1517,8 @@ def graph(
                 """
                 SELECT se.src_entity_id, se.dst_entity_id, se.src_label, se.dst_label,
                        se.relation, se.confidence_score,
-                       e1.category AS src_cat, e2.category AS dst_cat
+                       e1.category AS src_cat, e1.entity_type AS src_type,
+                       e2.category AS dst_cat, e2.entity_type AS dst_type
                 FROM entity_semantic_edges se
                 LEFT JOIN entities e1 ON e1.id = se.src_entity_id
                 LEFT JOIN entities e2 ON e2.id = se.dst_entity_id
@@ -1538,6 +1539,7 @@ def graph(
             m.GraphNode(
                 id=sid, label=r["src_label"], kind="entity" if src_eid is not None else "concept",
                 category=r["src_cat"], entity_id=src_eid, seed=is_seed(src_eid),
+                entity_type=r["src_type"],
             ),
         )
         nodes.setdefault(
@@ -1545,6 +1547,7 @@ def graph(
             m.GraphNode(
                 id=did, label=r["dst_label"], kind="entity" if dst_eid is not None else "concept",
                 category=r["dst_cat"], entity_id=dst_eid, seed=is_seed(dst_eid),
+                entity_type=r["dst_type"],
             ),
         )
         edges.append(
@@ -1571,6 +1574,126 @@ def graph(
                 id=nid, label=r["canonical_name"], kind="entity", category=r["category"],
                 entity_id=r["id"], seed=is_seed(r["id"]), entity_type=r["entity_type"],
                 info=r["info"],
+            )
+
+    # "Similar Projects" / "Similar Companies" (search view only): a same-category overlap
+    # heuristic, not a claim of any real relationship — deliberately NOT entity_semantic_edges
+    # (that table holds actual LLM judgements, sparsely populated from a one-time /graphify
+    # rebuild; GRAPH_PLAN.md forbids wiring that regeneration into daily.sh). `category` is a
+    # free, always-on signal (seed/categories.yaml, ~30 controlled values) every repo/model/
+    # package/paper/work entity already carries, so this works for the whole universe today.
+    # Capped per-anchor (6) and overall (20) so a common category doesn't flood the view.
+    if q and filter_ids:
+        existing_eids = {n.entity_id for n in nodes.values() if n.entity_id is not None}
+        seed_id_list = list(seed_ids)
+        added = 0
+
+        proj_rows = session.execute(
+            text(
+                """
+                WITH anchors AS (
+                    SELECT id, category FROM entities
+                    WHERE id = ANY(:anchors) AND entity_type IN
+                          ('repo', 'model', 'package', 'paper', 'work')
+                      AND category IS NOT NULL AND merged_into IS NULL
+                ),
+                ranked AS (
+                    SELECT a.id AS anchor_id, e.id AS similar_id, e.canonical_name,
+                           e.category, e.entity_type,
+                           row_number() OVER (
+                               PARTITION BY a.id
+                               ORDER BY (e.id = ANY(:seeds)) DESC, e.id DESC
+                           ) AS rn
+                    FROM anchors a
+                    JOIN entities e
+                      ON e.category = a.category AND e.id != a.id AND e.merged_into IS NULL
+                )
+                SELECT anchor_id, similar_id, canonical_name, category, entity_type
+                FROM ranked WHERE rn <= 6
+                """
+            ),
+            {"anchors": filter_ids, "seeds": seed_id_list},
+        ).mappings().all()
+        for r in proj_rows:
+            aid = entity_id_of(r["anchor_id"])
+            if aid not in nodes:
+                continue  # shouldn't happen post-`missing`; skip defensively
+            sim_eid = r["similar_id"]
+            sid_node = entity_id_of(sim_eid)
+            if sid_node not in nodes:
+                if added >= 20:
+                    continue
+                nodes[sid_node] = m.GraphNode(
+                    id=sid_node, label=r["canonical_name"], kind="entity",
+                    category=r["category"], entity_id=sim_eid, seed=is_seed(sim_eid),
+                    entity_type=r["entity_type"],
+                )
+                existing_eids.add(sim_eid)
+                added += 1
+            edges.append(
+                m.GraphEdge(
+                    source=aid, target=sid_node, relation="same_category",
+                    kind="heuristic", weight=1.0,
+                )
+            )
+
+        # Similar Companies: orgs don't carry `category` directly, so derive one from the
+        # projects they develop/produce (same edge shapes graph/edges.py already mints) and
+        # match orgs on overlap of THAT derived set.
+        org_rows = session.execute(
+            text(
+                """
+                WITH org_categories AS (
+                    SELECT ge.dst_entity_id AS org_id, e.category
+                    FROM entity_graph_edges ge JOIN entities e ON e.id = ge.src_entity_id
+                    WHERE ge.edge_type = 'developed_by' AND e.category IS NOT NULL
+                    UNION
+                    SELECT ge.src_entity_id AS org_id, e.category
+                    FROM entity_graph_edges ge JOIN entities e ON e.id = ge.dst_entity_id
+                    WHERE ge.edge_type = 'produces' AND e.category IS NOT NULL
+                ),
+                pairs AS (
+                    SELECT DISTINCT ac.org_id AS anchor_org, oc.org_id AS similar_org
+                    FROM org_categories ac
+                    JOIN org_categories oc ON oc.category = ac.category AND oc.org_id != ac.org_id
+                    WHERE ac.org_id = ANY(:anchors)
+                ),
+                ranked AS (
+                    SELECT anchor_org, similar_org,
+                           row_number() OVER (
+                               PARTITION BY anchor_org
+                               ORDER BY (similar_org = ANY(:seeds)) DESC, similar_org DESC
+                           ) AS rn
+                    FROM pairs
+                )
+                SELECT r.anchor_org, r.similar_org, e.canonical_name, e.category, e.entity_type
+                FROM ranked r JOIN entities e ON e.id = r.similar_org
+                WHERE r.rn <= 6 AND e.merged_into IS NULL
+                """
+            ),
+            {"anchors": filter_ids, "seeds": seed_id_list},
+        ).mappings().all()
+        for r in org_rows:
+            aid = entity_id_of(r["anchor_org"])
+            if aid not in nodes:
+                continue
+            sim_eid = r["similar_org"]
+            sid_node = entity_id_of(sim_eid)
+            if sid_node not in nodes:
+                if added >= 20:
+                    continue
+                nodes[sid_node] = m.GraphNode(
+                    id=sid_node, label=r["canonical_name"], kind="entity",
+                    category=r["category"], entity_id=sim_eid, seed=is_seed(sim_eid),
+                    entity_type=r["entity_type"],
+                )
+                existing_eids.add(sim_eid)
+                added += 1
+            edges.append(
+                m.GraphEdge(
+                    source=aid, target=sid_node, relation="same_category",
+                    kind="heuristic", weight=1.0,
+                )
             )
 
     return m.GraphResponse(nodes=list(nodes.values()), edges=edges)

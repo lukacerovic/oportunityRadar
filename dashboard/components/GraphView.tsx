@@ -23,11 +23,59 @@ function categoryColor(category: string | null): string {
 
 const DETERMINISTIC_COLOR = "#2DD4BF"; // project links: authorship / citations / dependencies / models
 const REASONED_COLOR = "#A78BFA"; // matches the council-review purple — both are "a model's judgement"
+const HEURISTIC_COLOR = "#94A3B8"; // same-category overlap — a hint, not a claimed relationship
 // Team layer (Wikidata enrichment): people and orgs carry no category, so they get fixed colors
 // that read apart from the category-hashed project/paper/model nodes.
 const PERSON_COLOR = "#F59E0B";
 const ORG_COLOR = "#38BDF8";
 const WORK_COLOR = "#FB7185"; // notable-work entities (ChatGPT, TensorFlow, …)
+
+// The five filter buckets a node can fall into. A node connected by a real structural edge
+// (deterministic) is "Companies"/"Projects"; one only reachable through a reasoned or heuristic
+// edge is "Similar Companies"/"Similar Projects" instead — see nodeBucket() below.
+type Bucket = "people" | "companies" | "projects" | "similarCompanies" | "similarProjects";
+
+const BUCKET_META: { key: Bucket; label: string; color: string }[] = [
+  { key: "people", label: "People", color: PERSON_COLOR },
+  { key: "companies", label: "Companies", color: ORG_COLOR },
+  { key: "projects", label: "Projects", color: DETERMINISTIC_COLOR },
+  { key: "similarProjects", label: "Similar Projects", color: HEURISTIC_COLOR },
+  { key: "similarCompanies", label: "Similar Companies", color: HEURISTIC_COLOR },
+];
+
+const DEFAULT_BUCKETS: Record<Bucket, boolean> = {
+  people: true,
+  companies: true,
+  projects: true,
+  similarProjects: true,
+  similarCompanies: true,
+};
+
+const KIND_RANK: Record<string, number> = { deterministic: 0, reasoned: 1, heuristic: 2 };
+
+// Per node, the strongest edge kind connecting it to the rest of the graph. A node that's ALSO
+// structurally linked isn't merely "similar" — deterministic wins even if a heuristic/reasoned
+// edge to the same node exists too (see buildGraph's parallel-edge merge below).
+function bestEdgeKinds(edges: GraphEdge[]): Map<string, number> {
+  const rank = new Map<string, number>();
+  for (const e of edges) {
+    const r = KIND_RANK[e.kind] ?? 2;
+    for (const id of [e.source, e.target]) {
+      const cur = rank.get(id);
+      if (cur === undefined || r < cur) rank.set(id, r);
+    }
+  }
+  return rank;
+}
+
+function nodeBucket(n: GraphNode, bestRank: number | undefined): Bucket {
+  const structural = bestRank === 0;
+  if (n.entity_type === "person") return "people";
+  if (n.entity_type === "org") return structural ? "companies" : "similarCompanies";
+  // repo/model/package/paper/work, category-only nodes, and bare LLM-named concepts all land
+  // here — "the thing itself" vs. something pulled in only via similarity.
+  return structural ? "projects" : "similarProjects";
+}
 
 // Relationship families get their own edge colors so employment, education, and ownership read
 // apart at a glance. Anything not listed (built_by/cited/depends_on/authored_by/developed_by)
@@ -72,6 +120,7 @@ const SIGMA_SETTINGS = {
 
 function edgeColor(kind: GraphEdge["kind"], relations: string[]): string {
   if (kind === "reasoned") return REASONED_COLOR;
+  if (kind === "heuristic") return HEURISTIC_COLOR;
   for (const r of relations) {
     const family = EDGE_FAMILY[r];
     if (family) return family;
@@ -87,7 +136,11 @@ function nodeColor(n: GraphNode): string {
   return categoryColor(n.category);
 }
 
-function buildGraph(data: GraphResponse): Graph {
+function buildGraph(
+  data: GraphResponse,
+  enabled: Record<Bucket, boolean>,
+  focusIds: Set<number>
+): Graph {
   const graph = new Graph({ multi: true });
   const degree: Record<string, number> = {};
   for (const e of data.edges) {
@@ -95,7 +148,10 @@ function buildGraph(data: GraphResponse): Graph {
     degree[e.target] = (degree[e.target] ?? 0) + 1;
   }
 
+  const bestKind = bestEdgeKinds(data.edges);
   for (const n of data.nodes) {
+    const isFocus = n.entity_id != null && focusIds.has(n.entity_id);
+    if (!isFocus && !enabled[nodeBucket(n, bestKind.get(n.id))]) continue;
     const d = degree[n.id] ?? 1;
     const base = Math.min(4 + d * 1.5, 20);
     graph.addNode(n.id, {
@@ -123,7 +179,8 @@ function buildGraph(data: GraphResponse): Graph {
     const existing = mergedEdges.get(key);
     if (existing) {
       if (!existing.relations.includes(e.relation)) existing.relations.push(e.relation);
-      if (e.kind === "deterministic") existing.kind = "deterministic"; // provable wins the color
+      // Stronger evidence wins the display color: deterministic > reasoned > heuristic.
+      if ((KIND_RANK[e.kind] ?? 2) < (KIND_RANK[existing.kind] ?? 2)) existing.kind = e.kind;
       existing.weight = Math.max(existing.weight, e.weight);
     } else {
       mergedEdges.set(key, {
@@ -156,11 +213,11 @@ function buildGraph(data: GraphResponse): Graph {
   return graph;
 }
 
-function LoadGraph({ data }: { data: GraphResponse }) {
+function LoadGraph({ graph }: { graph: Graph }) {
   const loadGraph = useLoadGraph();
   useEffect(() => {
-    loadGraph(buildGraph(data));
-  }, [data, loadGraph]);
+    loadGraph(graph);
+  }, [graph, loadGraph]);
   return null;
 }
 
@@ -294,13 +351,18 @@ function NodePanel({
 export function GraphView({
   data,
   explainEntityId = null,
+  focusEntityIds = [],
 }: {
   data: GraphResponse;
   // Auto-open the ✨ explanation panel for this entity (the page passes the best search match).
   explainEntityId?: number | null;
+  // The entities the user actually searched for — always shown regardless of filter checkboxes,
+  // so narrowing the view can never hide the thing you opened the graph for.
+  focusEntityIds?: number[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [explainId, setExplainId] = useState<number | null>(explainEntityId);
+  const [enabled, setEnabled] = useState<Record<Bucket, boolean>>(DEFAULT_BUCKETS);
 
   const nodeIndex = useMemo(() => new Map(data.nodes.map((n) => [n.id, n])), [data.nodes]);
   const neighborIndex = useMemo(() => {
@@ -313,6 +375,10 @@ export function GraphView({
     }
     return idx;
   }, [data.edges]);
+  const focusIds = useMemo(() => new Set(focusEntityIds), [focusEntityIds]);
+  // Rebuilding is purely client-side over data already in hand — no refetch, no navigation, so
+  // every checkbox toggle is instant. See lib/api.ts's getGraph: only `q`/`trending` hit the API.
+  const graph = useMemo(() => buildGraph(data, enabled, focusIds), [data, enabled, focusIds]);
 
   const selected = selectedId
     ? { ...nodeIndex.get(selectedId)!, neighbors: [...(neighborIndex.get(selectedId) ?? [])] }
@@ -320,12 +386,33 @@ export function GraphView({
 
   return (
     <div>
-      <div className="relative h-[calc(100vh-11rem)] overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="mb-2 flex flex-wrap items-center gap-x-1 gap-y-1.5 px-1 text-[11px]">
+        <span className="mr-1 text-faint">Show:</span>
+        {BUCKET_META.map(({ key, label, color }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setEnabled((prev) => ({ ...prev, [key]: !prev[key] }))}
+            aria-pressed={enabled[key]}
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition ${
+              enabled[key] ? "border-border bg-card-hover text-text" : "border-border/50 text-faint"
+            }`}
+          >
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ background: color, opacity: enabled[key] ? 1 : 0.35 }}
+            />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="relative h-[calc(100vh-13.5rem)] overflow-hidden rounded-xl border border-border bg-surface">
         <SigmaContainer
           style={{ height: "100%", width: "100%", background: "transparent" }}
           settings={SIGMA_SETTINGS}
         >
-          <LoadGraph data={data} />
+          <LoadGraph graph={graph} />
           <GraphEvents onSelect={setSelectedId} />
         </SigmaContainer>
 
@@ -348,6 +435,7 @@ export function GraphView({
             [WORK_COLOR, "Notable work"],
             [OWNERSHIP_COLOR, "Ownership & investors"],
             [REASONED_COLOR, "LLM-reasoned similarity"],
+            [HEURISTIC_COLOR, "Same-category overlap (not a claimed relationship)"],
           ] as const
         ).map(([color, label]) => (
           <div key={label} className="flex items-center gap-2">

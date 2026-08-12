@@ -374,7 +374,9 @@ export interface GraphEdge {
   source: string;
   target: string;
   relation: string;
-  kind: "deterministic" | "reasoned";
+  // "heuristic" = same-category overlap computed live in the search view — no claimed
+  // relationship, unlike deterministic (raw_event-backed) or reasoned (LLM judgement).
+  kind: "deterministic" | "reasoned" | "heuristic";
   weight: number;
 }
 
