@@ -22,6 +22,15 @@
 - slug: multimodal-model
   keywords: [multimodal, vision language, image generation, text-to-image, diffusion, text-to-video, speech, audio model, tts]
   theme: multimodal & vision
+- slug: mcp-tool
+  keywords: [mcp server, mcp client, mcp tool, model context protocol, mcp integration, mcp plugin]
+  theme: agent tooling
+- slug: agent-skill
+  keywords: [agent skill, claude code skill, codex skill, skill file, skill registry, agent plugin]
+  theme: agent tooling
+- slug: agent-interop
+  keywords: [agent protocol, agent interoperability, agent-to-agent, aip protocol, acp protocol, agent handoff, agent communication protocol]
+  theme: agent tooling
 - slug: agent-framework
   keywords: [agent framework, ai agent, autonomous agent, multi-agent, orchestration, agentic, tool use, react agent]
   theme: agent tooling
