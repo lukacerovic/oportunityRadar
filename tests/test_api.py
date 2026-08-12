@@ -256,7 +256,9 @@ def test_dossier_tags_keep_readable_drop_machine(clean_db: Session) -> None:
     live elsewhere (graph edges, anchors) — while license: stays, it's information."""
     session = clean_db
     t0 = datetime(2024, 1, 1, tzinfo=UTC)
-    eid = _entity(session, "moonshotai/kimi-k3", created=t0, attrs={"anchors": {"hf": "moonshotai/kimi-k3"}})
+    eid = _entity(
+        session, "moonshotai/kimi-k3", created=t0, attrs={"anchors": {"hf": "moonshotai/kimi-k3"}}
+    )
     rid = int(
         session.execute(
             text(
