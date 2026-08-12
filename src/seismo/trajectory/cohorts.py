@@ -64,6 +64,10 @@ def entity_facts(session: Session, as_of: datetime) -> dict[int, EntityFacts]:
         FROM entity_links l
         JOIN raw_events r ON r.id = l.raw_event_id
         WHERE l.rule = 'attach' AND r.occurred_at <= :as_of
+          AND r.event_type NOT IN (
+              'model_snapshot', 'model_readme', 'hn_discussion',
+              'pypi_metadata', 'launch_page'
+          )
         GROUP BY l.entity_id
         """
     )

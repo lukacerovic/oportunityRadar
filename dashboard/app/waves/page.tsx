@@ -46,9 +46,16 @@ export default async function WavesPage({
         <div className="mb-5">
           <h1 className="text-xl font-semibold tracking-tight">Waves</h1>
           <p className="mt-1 max-w-[70ch] text-sm text-muted">
-            Several <span className="text-text">independent</span> teams starting on the same idea at
-            once. Every other view measures how fast one thing moves; this measures how many
-            unrelated people moved at the same time. Deterministic — no model decides membership.
+            A wave forms when several <span className="text-text">independent</span> teams start
+            building the same thing inside a short window — without knowing about each other. One
+            repo with 5,000 stars is news. Four repos from four teams who don&apos;t share a single
+            contributor is <span className="text-text">evidence that something is changing</span>.
+          </p>
+          <p className="mt-2 max-w-[70ch] text-sm text-muted">
+            Each card below is one such convergence. Click through to see who the members are,
+            what categories they span, and (once graded) whether the wave took hold or faded.
+            Strength is a rough sort order — read <span className="text-text">member count</span>{" "}
+            and <span className="text-text">categories</span> first.
           </p>
         </div>
 
@@ -83,7 +90,7 @@ export default async function WavesPage({
                 className="group rounded-lg border border-border bg-card p-4 transition hover:border-accent/60"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <h2 className="truncate text-[15px] font-medium">
                         {w.label ?? (
@@ -94,21 +101,43 @@ export default async function WavesPage({
                       </h2>
                       {w.verdict && <VerdictChip verdict={w.verdict} />}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                      <span>
-                        formed <span className="tabular text-text">{shortDate(w.first_seen)}</span>
-                      </span>
-                      <span className="text-faint">·</span>
-                      <span>
-                        <span className="tabular text-text">{w.member_count}</span> independent
-                        members
-                      </span>
-                      {w.themes.length > 0 && (
-                        <>
-                          <span className="text-faint">·</span>
-                          <span>{w.themes.join(" + ")}</span>
-                        </>
+
+                    {/* Auto-description from themes */}
+                    {w.themes.length > 0 && w.themes[0] !== "uncategorized" && (
+                      <p className="mt-1 text-[13px] text-text/80">
+                        {w.member_count} independent teams converging on{" "}
+                        <span className="font-medium">
+                          {w.themes.filter((t) => t !== "uncategorized").join(" + ")}
+                        </span>
+                        {w.first_seen !== w.last_active && (
+                          <span className="text-muted">
+                            {" "}— over {(new Date(w.last_active).getTime() - new Date(w.first_seen).getTime()) / 86400000} days
+                          </span>
+                        )}
+                      </p>
+                    )}
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {/* Category badges */}
+                      {w.categories
+                        .filter((c) => c !== "uncategorized")
+                        .slice(0, 4)
+                        .map((cat) => (
+                          <span
+                            key={cat}
+                            className="rounded-md bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent"
+                          >
+                            {cat}
+                          </span>
+                        ))}
+                      {w.categories.filter((c) => c !== "uncategorized").length > 4 && (
+                        <span className="text-[11px] text-faint">
+                          +{w.categories.filter((c) => c !== "uncategorized").length - 4} more
+                        </span>
                       )}
+                      <span className="text-[11px] text-faint">
+                        formed {shortDate(w.first_seen)}
+                      </span>
                     </div>
                   </div>
 
