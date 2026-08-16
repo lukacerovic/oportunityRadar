@@ -27,5 +27,7 @@ logs/
 # Derived corpora — regenerate, never commit.
 # briefs/ renders from Postgres via scripts/export_briefs.py (~40s for the full slice).
 # graphify-out/ is the graph build; its reasoned edges live in entity_semantic_edges (0009).
+# GRAPH_REPORT.md is the exception — small, human-readable, worth keeping in history.
 briefs/
-graphify-out/
+graphify-out/*
+!graphify-out/GRAPH_REPORT.md
