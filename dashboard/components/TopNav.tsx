@@ -10,6 +10,7 @@ const NAV = [
   { href: "/brief", label: "Briefs", hint: "Market-impact analyses — which public companies a shift could move" },
   { href: "/waves", label: "Waves", hint: "Convergences — several independent teams starting on the same idea at once" },
   { href: "/graph", label: "Graph", hint: "The correlation graph — deterministic spine + LLM-reasoned relations" },
+  { href: "/research", label: "Research", hint: "External last30days briefs — the demand side, never collected into Postgres" },
 ];
 
 export function TopNav({ active = "/" }: { active?: string }) {
