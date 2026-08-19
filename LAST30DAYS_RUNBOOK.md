@@ -26,6 +26,23 @@ sliku — vidi §"Zašto ovo uopšte koristimo".
 
 ## Kako se pokreće
 
+**Koristi wrapper** — `scripts/l30d.sh`. On sam postavlja `--save-dir` i
+serijalizuje pozive, pa dve najskuplje greške iz Pravila 1 i 6 ne mogu da se
+ponove:
+
+```bash
+./scripts/l30d.sh "tema"                          # brif, automatski sačuvan
+./scripts/l30d.sh --hiring "Ime Kompanije"        # samo jobs izvor
+./scripts/l30d.sh --search reddit,hackernews "tema"
+./scripts/l30d.sh --doctor                        # health check
+./scripts/l30d.sh --library "upit"                # pretraga svih prošlih brifova
+./scripts/l30d.sh --feed                          # index.html + feed.xml
+```
+
+Ako pokreneš drugi upit dok prvi radi, skript odbija umesto da obori Reddit.
+
+<details><summary>Direktno, bez wrappera (ako baš treba)</summary>
+
 ```bash
 cd ~/.agents/skills/last30days
 
@@ -45,6 +62,9 @@ python3 scripts/last30days.py "Ime Kompanije" --hiring-signals --emit md
 python3 scripts/last30days.py "tema" --search threads,linkedin,pinterest
 ```
 
+**Uvek dodaj `--save-dir`** — bez njega brif nestaje kad se obriše temp folder.
+</details>
+
 ## Pravila naučena na teži način
 
 **1. NIKAD ne pokretati više upita paralelno.** Tri paralelna upita su oborila
@@ -60,6 +80,12 @@ uvek.
 
 **4. `--hiring-signals` ignoriše ostale izvore.** Jobs-scoped je; ako hoćeš i
 community sentiment u istom runu, moraš eksplicitno `--search reddit,x,jobs`.
+
+**6. Bez `--save-dir` brif je izgubljen.** Prvih pet upita ove sesije je otišlo u
+privremeni folder koji je obrisan — postoje samo kao tekst u prepisci. Wrapper
+`scripts/l30d.sh` to rešava. Usput se gradi i `.last30days-library.db` (SQLite +
+full-text), pa brifovi postaju vremenska serija koja se može porediti:
+`./scripts/l30d.sh --library "prompt injection"`.
 
 **5. ScrapeCreators backfill za Reddit se NE aktivira na delimičan rezultat.**
 Pali se samo kad besplatni put vrati **potpuno prazno**. Zato i sa aktivnim ključem
