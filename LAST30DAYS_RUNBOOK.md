@@ -1,6 +1,6 @@
 # last30days — runbook
 
-*Stanje na 2026-08-18. Sve u ovom fajlu je izmereno na ovoj mašini, ne prepisano
+*Stanje na 2026-08-19. Sve u ovom fajlu je izmereno na ovoj mašini, ne prepisano
 iz dokumentacije skila.*
 
 Eksterni istraživački skill koji vadi diskusiju sa Reddit/HN/GitHub/TikTok/YouTube/
@@ -79,7 +79,7 @@ u `~/.config/last30days/.env`.
 | Digg / arXiv / Techmeme / Trustpilot | Go CLI, bez ključa | bez kvote |
 | Jobs | besplatno, bez konfiguracije — ali kvalitet zavisi od ATS-a | vidi napomenu ispod |
 | Polymarket | besplatno | rezultat samo ako postoji tržište (na naše teme: 0) |
-| Instagram | **ne radi** — HTTP 404 uprkos validnom ključu | 0 |
+| Instagram | radi od 2026-08-19 (ranije HTTP 404) | troši ScrapeCreators kvotu |
 | Web | ne treba ključ — **host (Claude Code) služi web pretragu** | — |
 
 **Napomena o `jobs`:** kvalitet je vrlo nejednak i zavisi isključivo od toga koji
@@ -94,12 +94,12 @@ Bez `occurred_at` te stavke ne mogu ući u Seismograph po invarijanti 1. Pre neg
 što se gradi pravi ATS kolektor (`DATA_SOURCE_OPTIONS.md` ga već ima na listi),
 treba izmeriti kolika je pokrivenost standardnih ATS-ova u seed univerzumu.
 
-## Status izvora (2026-08-18)
+## Status izvora (2026-08-19)
 
-**Radi (9):** YouTube, Hacker News, Polymarket, GitHub, Digg, Techmeme, arXiv,
-TikTok, library
+**Radi (12):** YouTube, Hacker News, Polymarket, GitHub, Digg, Techmeme, arXiv,
+TikTok, Instagram, Bluesky, Jobs, library
 **Delimično (2):** Reddit (pada na 422/429), Trustpilot (instaliran, nikad pokrenut)
-**Pokvareno (1):** Instagram — HTTP 404
+**Pokvareno:** nijedan
 
 **Otključano ali se ne pali samo** (ScrapeCreators ključ ih pokriva):
 `threads`, `linkedin`, `pinterest` — treba `--search <ime>`.
@@ -110,8 +110,15 @@ X je najveći preostali dobitak za nula dinara — jedini veliki kanal koji fali
 
 ## Uključivanje preostalih izvora
 
-⚠️ **NIKAD ne prepisuj `~/.config/last30days/.env`.** Uvek dodaj sa `>>`
-(dupli redirect). Jedan `>` briše ScrapeCreators ključ i sve ostalo:
+⚠️ **Dve zamke u `.env` fajlu:**
+
+1. **NIKAD ne prepisuj ga sa `>`** — samo `>>` (dupli redirect). Jedan `>` briše
+   ScrapeCreators ključ i sve ostalo.
+2. **Nema inline komentara.** Parser NE skida `# ...` sa kraja linije, nego ga
+   uvuče u vrednost. `BSKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx  # format: ...`
+   daje lozinku od 54 karaktera i HTTP 401. Komentar ide u **zasebnu liniju**.
+3. **Skini `#` sa početka linije** kad upisuješ ključ — zakomentarisana linija se
+   ignoriše i doctor ključ neće videti.
 
 ```bash
 test -f ~/.config/last30days/.env && cat ~/.config/last30days/.env   # prvo pogledaj

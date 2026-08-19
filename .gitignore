@@ -34,3 +34,7 @@ graphify-out/*
 
 # macOS
 .DS_Store
+
+# last30days library DB (SQLite, regeneriše se)
+research/last30days/.last30days-library.db
+research/last30days/graphify-out/.graphify_*
