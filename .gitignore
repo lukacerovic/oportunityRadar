@@ -31,3 +31,6 @@ logs/
 briefs/
 graphify-out/*
 !graphify-out/GRAPH_REPORT.md
+
+# macOS
+.DS_Store

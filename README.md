@@ -41,6 +41,7 @@ the other layer docs. Reading order: `00 → 01 → 13 → 14 → 02…12`.
 | [GRAPH_PLAN.md](GRAPH_PLAN.md) · [WIKIDATA_ENRICHMENT_PLAN.md](WIKIDATA_ENRICHMENT_PLAN.md) | Graph roadmap |
 | [TAXONOMY_PLAN.md](TAXONOMY_PLAN.md) | Emergent taxonomy — embeddings, clusters, and growing the vocabulary from data |
 | [SOURCE_EXPANSION.md](SOURCE_EXPANSION.md) | Where the wave layer's data should come from — candidates + probe |
+| [LAST30DAYS_RUNBOOK.md](LAST30DAYS_RUNBOOK.md) | External demand-side research tool — how to run it, per-source limits, setup links |
 | [WAVES_HANDOFF.md](WAVES_HANDOFF.md) | **Wave Radar — how to run it, what to watch for, what's next** |
 | [WAVE_PLAN.md](WAVE_PLAN.md) | Wave Radar — the detection design |
 | [LEAD_TIME_PLAN.md](LEAD_TIME_PLAN.md) | Lead time, early observers, and the product argument |
